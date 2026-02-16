@@ -6,8 +6,8 @@
    --------------------------------------------------
    FEATURES:
    - Auto-Installs requirements
-   - Slider Logic
-   - Cookie Crash Fix
+   - Slider Logic (Limit & Delay)
+   - Robust Cookie Injection (Fixes 'unable to set cookie')
 =====================================================
 """
 
@@ -89,6 +89,7 @@ def close_popups(driver):
 def get_last_message(driver):
     IGNORE = ["Not Now", "Seen", "Active", "Save info", "Double tap", "The link you followed"]
     try:
+        # Scoped Selector (Fixes 'ritu.zii' bug)
         elements = driver.find_elements(By.XPATH, "//main//div[contains(@role, 'row')]//div[contains(@dir, 'auto')]")
         if not elements:
             elements = driver.find_elements(By.XPATH, "//main//div[contains(@class, 'x')]//span")
@@ -123,15 +124,15 @@ def main():
         sys.exit(1)
 
     sent_count = 0
-    target_id = re.sub(r'\D', '', TARGET) if "/t/" not in TARGET else re.search(r'/t/(\d+)', TARGET).group(1)
     
-    # Check if target_id is empty
-    if not target_id:
-        log("❌ Error: Could not extract Target ID from URL")
-        sys.exit(1)
+    # Extract ID from URL if full link is provided
+    if "/t/" in TARGET:
+        target_id = re.search(r'/t/(\d+)', TARGET).group(1)
+    else:
+        target_id = re.sub(r'\D', '', TARGET)
 
     url = f"https://www.instagram.com/direct/t/{target_id}/"
-    log(f"🎯 Target Locked: {url}")
+    log(f"🎯 Target Locked: {target_id}")
 
     while sent_count < SLIDER_LIMIT:
         driver = None
@@ -139,23 +140,39 @@ def main():
             log("🚀 Launching Browser...")
             driver = get_driver()
             
-            # --- COOKIE FIX HERE ---
-            # 1. Navigate to a 404 page on the domain first to set context
-            driver.get("https://www.instagram.com/404")
-            time.sleep(3) 
-            
-            # 2. Add Cookie
-            driver.add_cookie({'name': 'sessionid', 'value': COOKIE, 'domain': '.instagram.com', 'path': '/'})
-            
-            # 3. NOW navigate to the target
+            # --- ROBUST COOKIE INJECTION ---
+            try:
+                # 1. Load the real domain first
+                driver.get("https://www.instagram.com/")
+                
+                # 2. WAIT for it to actually initialize
+                time.sleep(5) 
+                
+                # 3. Inject Cookie
+                driver.add_cookie({
+                    'name': 'sessionid', 
+                    'value': COOKIE, 
+                    'domain': '.instagram.com', 
+                    'path': '/'
+                })
+                
+                # 4. Refresh to apply login
+                driver.refresh()
+                time.sleep(5)
+                
+            except Exception as cookie_error:
+                log(f"❌ Cookie Injection Failed: {cookie_error}")
+                driver.quit()
+                continue # Retry the loop
+
+            # 5. Navigate to Chat
             driver.get(url)
             time.sleep(5)
-            
             close_popups(driver)
-            
-            # Verify Login
+
+            # Check if login worked
             if "login" in driver.current_url:
-                log("⚠️ Cookie Failed. Redirected to Login.")
+                log("⚠️ Login Failed. Cookie might be expired.")
                 break
 
             last_msg = get_last_message(driver)
@@ -163,6 +180,7 @@ def main():
             
             session_start = time.time()
 
+            # --- THE SLIDER LOOP ---
             while (time.time() - session_start) < SESSION_TIME:
                 if sent_count >= SLIDER_LIMIT: break
 
