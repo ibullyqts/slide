@@ -5,10 +5,9 @@
    🔥 CREDITS: Script by Praveer
    --------------------------------------------------
    FEATURES:
-   - Auto-Installs its own requirements
-   - "Slider" Logic (Loop Limit)
-   - "Not Now" Popup Bypass
-   - Scoped Message Reader (Fixes 'ritu.zii' bug)
+   - Auto-Installs requirements
+   - Slider Logic
+   - Cookie Crash Fix
 =====================================================
 """
 
@@ -20,7 +19,7 @@ import random
 import re
 from datetime import datetime
 
-# --- 1. AUTO-INSTALL REQUIREMENTS INSIDE CODE ---
+# --- 1. AUTO-INSTALL REQUIREMENTS ---
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
@@ -40,22 +39,19 @@ except ImportError:
     os.execv(sys.executable, ['python'] + sys.argv)
 
 # --- 2. CONFIGURATION (THE SLIDER) ---
-# Secrets (Set these in GitHub Secrets or Env Vars)
 COOKIE = os.environ.get("INSTA_COOKIE")
-TARGET = os.environ.get("TARGET_THREAD_ID")  # Numeric ID (e.g., 887427387249300)
+TARGET = os.environ.get("TARGET_THREAD_ID") 
 MESSAGES = os.environ.get("MESSAGES", "Hello|Hi|Bot Active").split("|")
 
-# 🎚️ THE SLIDER (Loop Controls)
-SLIDER_LIMIT = 1000       # How many messages to send before stopping
-SLIDER_DELAY = (10, 30)   # Wait 10-30s between replies (Safety Slider)
-SESSION_TIME = 600        # Restart browser every 10 mins (Memory Saver)
+SLIDER_LIMIT = 1000       # How many messages to send
+SLIDER_DELAY = (10, 30)   # Wait 10-30s between replies
+SESSION_TIME = 600        # Restart browser every 10 mins
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 🤖 {msg}", flush=True)
 
 def get_driver():
     options = Options()
-    # GitHub Actions / Headless Config
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -63,16 +59,11 @@ def get_driver():
     options.add_argument("--window-size=375,812")
     options.add_argument("--disable-notifications")
     
-    # iPhone User Agent (Critical for this selector logic)
     mobile_emulation = {
         "deviceMetrics": { "width": 375, "height": 812, "pixelRatio": 3.0 },
         "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
     }
     options.add_experimental_option("mobileEmulation", mobile_emulation)
-
-    # Proxy Support (Optional)
-    if os.environ.get("PROXY_URL"):
-        options.add_argument(f'--proxy-server={os.environ.get("PROXY_URL")}')
 
     service = Service(log_output=os.devnull)
     driver = webdriver.Chrome(options=options, service=service)
@@ -88,7 +79,6 @@ def get_driver():
     return driver
 
 def close_popups(driver):
-    """Closes 'Not Now', 'Save Info', 'Add to Home'"""
     try:
         xpath = "//button[contains(text(), 'Not Now')] | //button[contains(text(), 'Not now')] | //button[contains(text(), 'Cancel')]"
         for btn in driver.find_elements(By.XPATH, xpath):
@@ -97,13 +87,8 @@ def close_popups(driver):
     except: pass
 
 def get_last_message(driver):
-    """
-    Reads the last message bubble.
-    Scopes to <main> to avoid reading the header/username.
-    """
     IGNORE = ["Not Now", "Seen", "Active", "Save info", "Double tap", "The link you followed"]
     try:
-        # Scoped Selector (Fixes 'ritu.zii' bug)
         elements = driver.find_elements(By.XPATH, "//main//div[contains(@role, 'row')]//div[contains(@dir, 'auto')]")
         if not elements:
             elements = driver.find_elements(By.XPATH, "//main//div[contains(@class, 'x')]//span")
@@ -138,9 +123,13 @@ def main():
         sys.exit(1)
 
     sent_count = 0
-    
-    # Clean Target URL Logic
     target_id = re.sub(r'\D', '', TARGET) if "/t/" not in TARGET else re.search(r'/t/(\d+)', TARGET).group(1)
+    
+    # Check if target_id is empty
+    if not target_id:
+        log("❌ Error: Could not extract Target ID from URL")
+        sys.exit(1)
+
     url = f"https://www.instagram.com/direct/t/{target_id}/"
     log(f"🎯 Target Locked: {url}")
 
@@ -150,23 +139,30 @@ def main():
             log("🚀 Launching Browser...")
             driver = get_driver()
             
-            # 1. Login via Cookie
-            driver.get("https://www.instagram.com/")
+            # --- COOKIE FIX HERE ---
+            # 1. Navigate to a 404 page on the domain first to set context
+            driver.get("https://www.instagram.com/404")
+            time.sleep(3) 
+            
+            # 2. Add Cookie
             driver.add_cookie({'name': 'sessionid', 'value': COOKIE, 'domain': '.instagram.com', 'path': '/'})
-            driver.refresh()
-            time.sleep(5)
-
-            # 2. Go to Thread
+            
+            # 3. NOW navigate to the target
             driver.get(url)
             time.sleep(5)
+            
             close_popups(driver)
+            
+            # Verify Login
+            if "login" in driver.current_url:
+                log("⚠️ Cookie Failed. Redirected to Login.")
+                break
 
             last_msg = get_last_message(driver)
             log(f"✅ Connected. Last msg seen: '{last_msg}'")
             
             session_start = time.time()
 
-            # 3. Listen Loop (The Slider)
             while (time.time() - session_start) < SESSION_TIME:
                 if sent_count >= SLIDER_LIMIT: break
 
@@ -174,8 +170,6 @@ def main():
                 
                 if current_msg and current_msg != last_msg:
                     log(f"📩 Incoming: {current_msg}")
-                    
-                    # Wait (Slider Delay)
                     wait_time = random.randint(*SLIDER_DELAY)
                     time.sleep(wait_time)
                     
@@ -184,13 +178,11 @@ def main():
                         sent_count += 1
                         log(f"📤 Sent ({sent_count}/{SLIDER_LIMIT}): {reply}")
                         last_msg = reply 
-                        
-                        # Verify UI update
                         time.sleep(2)
                         check = get_last_message(driver)
                         if check: last_msg = check
                 
-                time.sleep(2) # Check frequency
+                time.sleep(2)
 
         except Exception as e:
             log(f"⚠️ Crash: {e}")
