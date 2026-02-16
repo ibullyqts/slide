@@ -22,15 +22,14 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # --- CONFIGURATION ---
-THREADS = 1             # Keep at 1 for reply logic
-TOTAL_DURATION = 25000  # Total run time (seconds)
-SESSION_MIN_SEC = 300   # Restart browser every 5 minutes (to clear RAM)
+THREADS = 1             
+TOTAL_DURATION = 25000  
+SESSION_MIN_SEC = 300   
 
 GLOBAL_SENT = 0
 COUNTER_LOCK = threading.Lock()
 BROWSER_LAUNCH_LOCK = threading.Lock()
 
-# Force UTF-8 output
 sys.stdout.reconfigure(encoding='utf-8')
 
 def log_status(agent_id, msg):
@@ -42,7 +41,7 @@ def get_driver(agent_id):
         time.sleep(3) 
         chrome_options = Options()
         
-        # 🛡️ CRASH PREVENTION FLAGS
+        # 🛡️ STABILITY FLAGS
         chrome_options.add_argument("--headless=new") 
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
@@ -53,14 +52,12 @@ def get_driver(agent_id):
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-notifications")
         
-        # Mobile Emulation
         mobile_emulation = {
             "deviceMetrics": { "width": 375, "height": 812, "pixelRatio": 3.0 },
             "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
         }
         chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
         
-        # Unique Temp Directory
         temp_dir = os.path.join(tempfile.gettempdir(), f"linux_v100_reply_{agent_id}_{int(time.time())}")
         chrome_options.add_argument(f"--user-data-dir={temp_dir}")
 
@@ -83,18 +80,13 @@ def get_driver(agent_id):
         
         driver.custom_temp_path = temp_dir
         driver.set_page_load_timeout(30)
-        
         return driver
 
 def close_popups(driver):
-    """
-    Closes 'Turn on Notifications', 'Save Info', or 'Add to Home Screen' popups
-    """
     try:
-        # 1. Generic "Not Now" buttons (Covers Save Info & Notifications)
+        # "Not Now" buttons
         xpath = "//button[contains(text(), 'Not Now')] | //button[contains(text(), 'Not now')]"
         buttons = driver.find_elements(By.XPATH, xpath)
-        
         for btn in buttons:
             try:
                 btn.click()
@@ -102,14 +94,12 @@ def close_popups(driver):
             except:
                 driver.execute_script("arguments[0].click();", btn)
         
-        # 2. "Cancel" buttons (sometimes used for 'Add to Home Screen')
+        # "Cancel" buttons (Add to home screen)
         try:
             cancel = driver.find_element(By.XPATH, "//button[contains(text(), 'Cancel')]")
             cancel.click()
         except: pass
-
-    except:
-        pass
+    except: pass
 
 def find_mobile_box(driver):
     selectors = ["//textarea", "//div[@role='textbox']", "//div[contains(@contenteditable, 'true')]"]
@@ -122,27 +112,34 @@ def find_mobile_box(driver):
 
 def get_last_message_text(driver):
     """
-    Scrapes the chat to find the text of the very last message bubble.
-    Aggressively filters out System/Popup text.
+    Scrapes the chat to find the text of the very last message.
+    Scopes to <main> to avoid reading the Header/Username.
     """
-    # 🚫 TEXT TO IGNORE (Blacklist)
+    # 🚫 STATIC IGNORE LIST
     IGNORE_LIST = [
         "Not Now", "Not now", "Turn On", "Turn on", 
         "Seen", "Double tap to like", "Send", 
-        "Active now", "Active today",
-        "Save info", "Save Info", "Save your login info"
+        "Active now", "Active today", "Save info", 
+        "Save your login info"
     ]
 
+    # 🚫 DYNAMIC IGNORE: Add the Chat Title (Target Name) to ignore list
     try:
-        # Strategy 1: Look for standard message bubbles (Mobile View)
-        elements = driver.find_elements(By.XPATH, "//div[contains(@role, 'row')]//div[contains(@dir, 'auto')]")
+        header_title = driver.find_element(By.TAG_NAME, "h1").text.strip()
+        if header_title: IGNORE_LIST.append(header_title)
+    except: pass
+
+    try:
+        # 🎯 SCOPED SELECTOR: Only look inside <main> tag to avoid Header bar
+        # This is the key fix for "ritu.zii" appearing
+        elements = driver.find_elements(By.XPATH, "//main//div[contains(@role, 'row')]//div[contains(@dir, 'auto')]")
         
-        # Strategy 2: Fallback
+        # Fallback if structure is different
         if not elements:
-            elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'x')]//span")
+            elements = driver.find_elements(By.XPATH, "//main//div[contains(@class, 'x')]//span")
             
         if elements:
-            # Check the last 5 elements to be safe
+            # Check last 5 elements
             check_range = min(len(elements), 5)
             
             for i in range(1, check_range + 1):
@@ -150,10 +147,9 @@ def get_last_message_text(driver):
                     text_obj = elements[-i]
                     text = text_obj.text.strip()
                     
-                    if not text:
-                        continue
+                    if not text: continue
 
-                    # Check against blacklist
+                    # Filter check
                     is_ignored = False
                     for bad_word in IGNORE_LIST:
                         if bad_word in text:
@@ -162,8 +158,7 @@ def get_last_message_text(driver):
                     
                     if not is_ignored:
                         return text
-                except:
-                    continue
+                except: continue
     except:
         pass
     return ""
@@ -179,11 +174,9 @@ def adaptive_inject(driver, element, text):
         
         time.sleep(0.5)
         try:
-            # Try clicking generic Send button
             btn = driver.find_element(By.XPATH, "//div[contains(text(), 'Send')] | //button[text()='Send']")
             driver.execute_script("arguments[0].click();", btn)
         except:
-            # Fallback to Enter key
             element.send_keys(Keys.ENTER)
         return True
     except:
@@ -199,7 +192,6 @@ def run_life_cycle(agent_id, cookie, target, messages):
     while (time.time() - global_start) < TOTAL_DURATION:
         driver = None
         temp_path = None
-        
         session_start = time.time()
         
         try:
@@ -218,60 +210,45 @@ def run_life_cycle(agent_id, cookie, target, messages):
             driver.get(f"https://www.instagram.com/direct/t/{target}/")
             time.sleep(5) 
             
-            # --- CRITICAL FIX: CLOSE POPUPS ---
             close_popups(driver)
             time.sleep(2)
             
-            log_status(agent_id, "[LISTEN] Connected to chat. Waiting for new messages...")
+            log_status(agent_id, "[LISTEN] Connected. Scoping messages...")
             
-            # 1. Take a snapshot of the current last message
             last_seen_text = get_last_message_text(driver)
-            log_status(agent_id, f"Initial state: '{last_seen_text[:20]}'")
+            log_status(agent_id, f"Initial state (Last Msg): '{last_seen_text[:20]}'")
 
             msg_box = find_mobile_box(driver)
 
             while (time.time() - session_start) < SESSION_MIN_SEC:
                 if (time.time() - global_start) > TOTAL_DURATION: break
 
-                # Refresh the msg box element if it goes stale
                 if not msg_box:
                     msg_box = find_mobile_box(driver)
                     if not msg_box:
                         time.sleep(2)
                         continue
 
-                # 2. Check current last message
                 current_text = get_last_message_text(driver)
 
-                # 3. If the text has CHANGED, it means a new message arrived
                 if current_text and current_text != last_seen_text:
-                    
                     log_status(agent_id, f"[NEW MSG] >> {current_text[:30]}")
-                    
-                    # Wait a random time to simulate reading/typing
                     time.sleep(random.uniform(2, 6))
                     
-                    # 4. Pick a reply and send
                     reply_text = random.choice(messages)
-                    
                     if adaptive_inject(driver, msg_box, f"{reply_text}"):
                         log_status(agent_id, f"[REPLY] >> {reply_text}")
                         with COUNTER_LOCK:
                             global GLOBAL_SENT
                             GLOBAL_SENT += 1
                         
-                        # 5. Update last_seen_text to what WE just sent
                         last_seen_text = reply_text 
-                        
-                        # Wait for UI update
                         time.sleep(3) 
                         
-                        # Verify UI state
                         actual_ui_text = get_last_message_text(driver)
-                        if actual_ui_text:
-                            last_seen_text = actual_ui_text
+                        if actual_ui_text: last_seen_text = actual_ui_text
 
-                time.sleep(1.5) # Check loop frequency
+                time.sleep(1.5)
 
         except Exception as e:
             err_msg = str(e).encode('ascii', 'ignore').decode('ascii')
@@ -282,21 +259,18 @@ def run_life_cycle(agent_id, cookie, target, messages):
             if driver: 
                 try: driver.quit()
                 except: pass
-            
             if temp_path and os.path.exists(temp_path):
                 try: shutil.rmtree(temp_path, ignore_errors=True)
                 except: pass
-            
             gc.collect() 
             time.sleep(3) 
 
 def main():
     cookie = os.environ.get("INSTA_COOKIE", "").strip()
     target = os.environ.get("TARGET_THREAD_ID", "").strip()
-    messages = os.environ.get("MESSAGES", "Hello|Hi|What's up").split("|")
+    messages = os.environ.get("MESSAGES", "Hello|Hi").split("|")
     
     if len(cookie) < 5:
-        print("Error: INSTA_COOKIE not found.")
         sys.exit(1)
 
     try: subprocess.run("pkill -f chrome", shell=True)
