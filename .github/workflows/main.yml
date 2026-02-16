@@ -1,0 +1,27 @@
+name: Insta Slide-Reply Bot
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install selenium selenium-stealth webdriver-manager
+
+      - name: Run Engine
+        env:
+          INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
+          TARGET_ID: "887427387249300"
+          REPLY_TEXTS: "Slider by Praveer active|😂|🔥|tMKC|TEZ RO|OY TRY MAA NANGI"
+        run: python engine.py
