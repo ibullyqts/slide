@@ -34,7 +34,6 @@ def get_driver():
     return driver
 
 def start_engine():
-    # --- CUSTOM CREDIT ---
     print("\n" + "="*30)
     print("   🚀 SLIDER BY PRAVEER 🚀   ")
     print("="*30 + "\n")
@@ -53,36 +52,81 @@ def start_engine():
         driver.get(f"https://www.instagram.com/direct/t/{TARGET_ID}/")
         time.sleep(15)
 
+        # --- ACTIVATION PING ---
+        # This part sends a message immediately upon connection
+        ping_text = "Slider by Praveer is now Active! 🚀"
+        ping_script = """
+        var box = document.querySelector('textarea, [role="textbox"], div[contenteditable="true"]');
+        if (box) {
+            box.focus();
+            document.execCommand('insertText', false, arguments[0]);
+            var sendBtn = Array.from(document.querySelectorAll('button, div[role="button"]')).find(b => 
+                b.innerText.includes('Send') || b.getAttribute('aria-label') === 'Send'
+            );
+            if (sendBtn) sendBtn.click();
+            return true;
+        }
+        return false;
+        """
+        if driver.execute_script(ping_script, ping_text):
+            log("📡 Activation Ping Sent!")
+        else:
+            log("⚠️ Failed to send Activation Ping. Box not found.")
+
+        # --- AUTO-REPLY LISTENER ---
         script = """
         window.lastCount = document.querySelectorAll('div[role="row"]').length;
         window.msgs = arguments[0];
+        
         setInterval(() => {
             let rows = document.querySelectorAll('div[role="row"]');
             if (rows.length > window.lastCount) {
+                console.log("BOT_SIGNAL: NEW_MESSAGE_DETECTED");
                 window.lastCount = rows.length;
                 let lastRow = rows[rows.length - 1];
-                if (!lastRow.innerText.includes('You sent')) {
-                    let replyBtn = lastRow.querySelector('button[aria-label="Reply"], svg[aria-label="Reply"]')?.closest('button');
+
+                if (!lastRow.innerText.includes('You sent') && !lastRow.innerText.includes('Slider by Praveer')) {
+                    let replyBtn = lastRow.querySelector('button[aria-label="Reply"]') || 
+                                   lastRow.querySelector('svg[aria-label="Reply"]')?.closest('button');
+
                     if (replyBtn) {
                         replyBtn.click();
+                        console.log("BOT_SIGNAL: REPLY_CLICKED");
+                        
                         setTimeout(() => {
-                            let box = document.querySelector('textarea, [role="textbox"]');
+                            let box = document.querySelector('textarea, [role="textbox"], div[contenteditable="true"]');
                             if (box) {
                                 box.focus();
                                 let txt = window.msgs[Math.floor(Math.random() * window.msgs.length)];
                                 document.execCommand('insertText', false, txt);
-                                let send = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Send') || b.getAttribute('aria-label') === 'Send');
-                                if (send) send.click();
+                                
+                                let sendBtn = Array.from(document.querySelectorAll('button, div[role="button"]')).find(b => 
+                                    b.innerText.includes('Send') || b.getAttribute('aria-label') === 'Send'
+                                );
+                                
+                                if (sendBtn) {
+                                    sendBtn.click();
+                                    console.log("BOT_SIGNAL: SENT_SUCCESS");
+                                }
                             }
-                        }, 300);
+                        }, 500);
                     }
                 }
             }
         }, 1000);
         """
         driver.execute_script(script, MESSAGES)
-        log("✅ SLIDER ACTIVE. Monitoring incoming messages...")
-        time.sleep(18000) 
+        log("✅ SLIDER ACTIVE. Monitoring for messages...")
+        
+        # Monitor logs
+        start_time = time.time()
+        while time.time() - start_time < 18000:
+            for entry in driver.get_log('browser'):
+                if "BOT_SIGNAL" in entry['message']:
+                    msg_type = entry['message'].split("BOT_SIGNAL: ")[1].replace('"', '')
+                    log(f"⚡ ACTION: {msg_type}")
+            time.sleep(2)
+        
     except Exception as e:
         log(f"⚠️ Error: {e}")
     finally:
