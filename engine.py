@@ -39,17 +39,16 @@ def log_status(agent_id, msg):
 
 def get_driver(agent_id):
     with BROWSER_LAUNCH_LOCK:
-        time.sleep(3) # Give it a moment to breathe
-        
+        time.sleep(3) 
         chrome_options = Options()
         
         # 🛡️ CRASH PREVENTION FLAGS
         chrome_options.add_argument("--headless=new") 
         chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage") # Crucial for Docker/Linux
+        chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-software-rasterizer") # Fixes some rendering crashes
-        chrome_options.add_argument("--remote-debugging-port=0") # Let Chrome pick its own port
+        chrome_options.add_argument("--disable-software-rasterizer")
+        chrome_options.add_argument("--remote-debugging-port=0")
         chrome_options.add_argument("--window-size=375,812")
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-notifications")
@@ -65,8 +64,6 @@ def get_driver(agent_id):
         temp_dir = os.path.join(tempfile.gettempdir(), f"linux_v100_reply_{agent_id}_{int(time.time())}")
         chrome_options.add_argument(f"--user-data-dir={temp_dir}")
 
-        # 🔧 USE SERVICE TO HANDLE PORTS AUTOMATICALLY
-        # This prevents the 'Port 58859' errors
         service = Service(log_output=os.devnull) 
         
         try:
@@ -75,7 +72,6 @@ def get_driver(agent_id):
             print(f"❌ Driver Launch Failed: {e}")
             raise e
 
-        # 🪄 Apply Stealth
         stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
@@ -86,30 +82,32 @@ def get_driver(agent_id):
         )
         
         driver.custom_temp_path = temp_dir
-        
-        # Set a hard timeout for page loads (30 seconds)
         driver.set_page_load_timeout(30)
         
         return driver
 
 def close_popups(driver):
     """
-    Aggressively closes 'Turn on Notifications' or 'Save Info' popups
+    Closes 'Turn on Notifications', 'Save Info', or 'Add to Home Screen' popups
     """
     try:
-        # XPath for "Not Now" buttons (case insensitive)
+        # 1. Generic "Not Now" buttons (Covers Save Info & Notifications)
         xpath = "//button[contains(text(), 'Not Now')] | //button[contains(text(), 'Not now')]"
         buttons = driver.find_elements(By.XPATH, xpath)
         
         for btn in buttons:
             try:
-                # 1. Standard Click
                 btn.click()
                 time.sleep(0.5)
             except:
-                # 2. JavaScript Force Click (if standard fails)
                 driver.execute_script("arguments[0].click();", btn)
-                time.sleep(0.5)
+        
+        # 2. "Cancel" buttons (sometimes used for 'Add to Home Screen')
+        try:
+            cancel = driver.find_element(By.XPATH, "//button[contains(text(), 'Cancel')]")
+            cancel.click()
+        except: pass
+
     except:
         pass
 
@@ -131,7 +129,8 @@ def get_last_message_text(driver):
     IGNORE_LIST = [
         "Not Now", "Not now", "Turn On", "Turn on", 
         "Seen", "Double tap to like", "Send", 
-        "Active now", "Active today"
+        "Active now", "Active today",
+        "Save info", "Save Info", "Save your login info"
     ]
 
     try:
