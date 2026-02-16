@@ -18,8 +18,6 @@ from selenium_stealth import stealth
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 # --- CONFIGURATION ---
 THREADS = 1             
@@ -35,6 +33,21 @@ sys.stdout.reconfigure(encoding='utf-8')
 def log_status(agent_id, msg):
     timestamp = datetime.datetime.now().strftime("%H:%M:%S")
     print(f"[{timestamp}] Agent {agent_id}: {msg}", flush=True)
+
+def clean_target_url(target_input):
+    """
+    Cleans the input to ensure we get a valid Instagram Direct URL.
+    Accepts: "123456" OR "https://www.instagram.com/direct/t/123456/"
+    """
+    # If user pasted full URL, extract the ID
+    match = re.search(r'/t/(\d+)', target_input)
+    if match:
+        thread_id = match.group(1)
+    else:
+        # Assume it's just the ID
+        thread_id = re.sub(r'\D', '', target_input) # Remove non-digits
+        
+    return f"https://www.instagram.com/direct/t/{thread_id}/"
 
 def get_driver(agent_id):
     with BROWSER_LAUNCH_LOCK:
@@ -94,7 +107,7 @@ def close_popups(driver):
             except:
                 driver.execute_script("arguments[0].click();", btn)
         
-        # "Cancel" buttons (Add to home screen)
+        # "Cancel" buttons
         try:
             cancel = driver.find_element(By.XPATH, "//button[contains(text(), 'Cancel')]")
             cancel.click()
@@ -115,41 +128,34 @@ def get_last_message_text(driver):
     Scrapes the chat to find the text of the very last message.
     Scopes to <main> to avoid reading the Header/Username.
     """
-    # 🚫 STATIC IGNORE LIST
     IGNORE_LIST = [
         "Not Now", "Not now", "Turn On", "Turn on", 
         "Seen", "Double tap to like", "Send", 
         "Active now", "Active today", "Save info", 
-        "Save your login info"
+        "Save your login info", "The link you followed"
     ]
 
-    # 🚫 DYNAMIC IGNORE: Add the Chat Title (Target Name) to ignore list
     try:
-        header_title = driver.find_element(By.TAG_NAME, "h1").text.strip()
-        if header_title: IGNORE_LIST.append(header_title)
-    except: pass
+        # 🚫 DYNAMIC IGNORE: Add the Chat Title (Target Name)
+        try:
+            header_title = driver.find_element(By.TAG_NAME, "h1").text.strip()
+            if header_title: IGNORE_LIST.append(header_title)
+        except: pass
 
-    try:
-        # 🎯 SCOPED SELECTOR: Only look inside <main> tag to avoid Header bar
-        # This is the key fix for "ritu.zii" appearing
+        # 🎯 SCOPED SELECTOR: Look inside <main> tag
         elements = driver.find_elements(By.XPATH, "//main//div[contains(@role, 'row')]//div[contains(@dir, 'auto')]")
         
-        # Fallback if structure is different
         if not elements:
             elements = driver.find_elements(By.XPATH, "//main//div[contains(@class, 'x')]//span")
             
         if elements:
-            # Check last 5 elements
             check_range = min(len(elements), 5)
-            
             for i in range(1, check_range + 1):
                 try:
                     text_obj = elements[-i]
                     text = text_obj.text.strip()
-                    
                     if not text: continue
 
-                    # Filter check
                     is_ignored = False
                     for bad_word in IGNORE_LIST:
                         if bad_word in text:
@@ -188,6 +194,10 @@ def extract_session_id(raw_cookie):
 
 def run_life_cycle(agent_id, cookie, target, messages):
     global_start = time.time()
+    
+    # 🧼 Clean the URL logic here
+    final_url = clean_target_url(target)
+    log_status(agent_id, f"Targeting URL: {final_url}")
 
     while (time.time() - global_start) < TOTAL_DURATION:
         driver = None
@@ -207,12 +217,19 @@ def run_life_cycle(agent_id, cookie, target, messages):
             driver.refresh()
             time.sleep(random.uniform(3, 5)) 
             
-            driver.get(f"https://www.instagram.com/direct/t/{target}/")
+            # Navigate to the cleaned URL
+            driver.get(final_url)
             time.sleep(5) 
             
             close_popups(driver)
             time.sleep(2)
             
+            # Check for 404 / Broken Link
+            page_text = driver.find_element(By.TAG_NAME, "body").text
+            if "link you followed" in page_text or "Page Not Found" in page_text:
+                log_status(agent_id, "❌ ERROR: Broken Link / Invalid ID. Checking next...")
+                break
+
             log_status(agent_id, "[LISTEN] Connected. Scoping messages...")
             
             last_seen_text = get_last_message_text(driver)
@@ -267,8 +284,8 @@ def run_life_cycle(agent_id, cookie, target, messages):
 
 def main():
     cookie = os.environ.get("INSTA_COOKIE", "").strip()
-    target = os.environ.get("TARGET_THREAD_ID", "").strip()
-    messages = os.environ.get("MESSAGES", "Hello|Hi").split("|")
+    target = os.environ.get("TARGET_THREAD_ID", "887427387249300").strip()
+    messages = os.environ.get("MESSAGES", "tmkc|cud").split("|")
     
     if len(cookie) < 5:
         sys.exit(1)
