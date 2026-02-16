@@ -77,17 +77,22 @@ def get_driver(agent_id):
 
 def close_popups(driver):
     """
-    Closes 'Turn on Notifications' or 'Save Info' popups
+    Aggressively closes 'Turn on Notifications' or 'Save Info' popups
     """
     try:
-        # Look for "Not Now" buttons
-        buttons = driver.find_elements(By.XPATH, "//button[contains(text(), 'Not Now')] | //button[contains(text(), 'Not now')]")
-        if buttons:
-            for btn in buttons:
-                try: 
-                    btn.click()
-                    time.sleep(1)
-                except: pass
+        # XPath for "Not Now" buttons (case insensitive)
+        xpath = "//button[contains(text(), 'Not Now')] | //button[contains(text(), 'Not now')]"
+        buttons = driver.find_elements(By.XPATH, xpath)
+        
+        for btn in buttons:
+            try:
+                # 1. Standard Click
+                btn.click()
+                time.sleep(0.5)
+            except:
+                # 2. JavaScript Force Click (if standard fails)
+                driver.execute_script("arguments[0].click();", btn)
+                time.sleep(0.5)
     except:
         pass
 
@@ -103,22 +108,49 @@ def find_mobile_box(driver):
 def get_last_message_text(driver):
     """
     Scrapes the chat to find the text of the very last message bubble.
-    Ignores system text like 'Seen', 'Today', etc.
+    Aggressively filters out System/Popup text.
     """
+    # 🚫 TEXT TO IGNORE (Blacklist)
+    IGNORE_LIST = [
+        "Not Now", "Not now", "Turn On", "Turn on", 
+        "Seen", "Double tap to like", "Send", 
+        "Active now", "Active today"
+    ]
+
     try:
-        # Broad selector for message bubbles in mobile view
+        # Strategy 1: Look for standard message bubbles (Mobile View)
+        # We look for divs that have specific styling usually found in chat bubbles
         elements = driver.find_elements(By.XPATH, "//div[contains(@role, 'row')]//div[contains(@dir, 'auto')]")
         
+        # Strategy 2: Fallback if Strategy 1 fails
         if not elements:
-            # Fallback for different DOM structures
             elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'x')]//span")
             
         if elements:
-            text = elements[-1].text.strip()
-            # Filter out common UI noise if the popup click failed
-            if text in ["Not Now", "Turn On", "Seen", "Double tap to like"]:
-                return ""
-            return text
+            # Iterate backwards to find the first "Real" message
+            # We check the last 5 elements to be safe
+            check_range = min(len(elements), 5)
+            
+            for i in range(1, check_range + 1):
+                try:
+                    text_obj = elements[-i]
+                    text = text_obj.text.strip()
+                    
+                    if not text:
+                        continue
+
+                    # Check against blacklist
+                    is_ignored = False
+                    for bad_word in IGNORE_LIST:
+                        if bad_word in text:
+                            is_ignored = True
+                            break
+                    
+                    if not is_ignored:
+                        return text
+                except:
+                    continue
+                    
     except:
         pass
     return ""
