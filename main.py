@@ -5,9 +5,9 @@
    🔥 CREDITS: Script by Praveer
    --------------------------------------------------
    FEATURES:
-   - Auto-Installs requirements
-   - Slider Logic (Limit & Delay)
-   - Robust Cookie Injection (Fixes 'unable to set cookie')
+   - Self-Installing Requirements
+   - SLIDER LOGIC (Limit & Delay)
+   - REFERENCE LOGIN METHOD (Google -> Insta -> Cookie)
 =====================================================
 """
 
@@ -18,6 +18,9 @@ import subprocess
 import random
 import re
 from datetime import datetime
+import shutil
+import gc
+import tempfile
 
 # --- 1. AUTO-INSTALL REQUIREMENTS ---
 def install(package):
@@ -43,7 +46,8 @@ COOKIE = os.environ.get("INSTA_COOKIE")
 TARGET = os.environ.get("TARGET_THREAD_ID") 
 MESSAGES = os.environ.get("MESSAGES", "Hello|Hi|Bot Active").split("|")
 
-SLIDER_LIMIT = 1000       # How many messages to send
+# 🎚️ THE SLIDER
+SLIDER_LIMIT = 1000       # Stop after sending X messages
 SLIDER_DELAY = (10, 30)   # Wait 10-30s between replies
 SESSION_TIME = 600        # Restart browser every 10 mins
 
@@ -65,6 +69,9 @@ def get_driver():
     }
     options.add_experimental_option("mobileEmulation", mobile_emulation)
 
+    temp_dir = os.path.join(tempfile.gettempdir(), f"linux_v100_single_{int(time.time())}")
+    options.add_argument(f"--user-data-dir={temp_dir}")
+
     service = Service(log_output=os.devnull)
     driver = webdriver.Chrome(options=options, service=service)
 
@@ -76,12 +83,15 @@ def get_driver():
         renderer="Mali-G76",
         fix_hairline=True,
     )
+    
+    driver.custom_temp_path = temp_dir
     return driver
 
 def close_popups(driver):
     try:
         xpath = "//button[contains(text(), 'Not Now')] | //button[contains(text(), 'Not now')] | //button[contains(text(), 'Cancel')]"
-        for btn in driver.find_elements(By.XPATH, xpath):
+        btns = driver.find_elements(By.XPATH, xpath)
+        for btn in btns:
             driver.execute_script("arguments[0].click();", btn)
             time.sleep(0.5)
     except: pass
@@ -89,7 +99,7 @@ def close_popups(driver):
 def get_last_message(driver):
     IGNORE = ["Not Now", "Seen", "Active", "Save info", "Double tap", "The link you followed"]
     try:
-        # Scoped Selector (Fixes 'ritu.zii' bug)
+        # Scoped to <main> to avoid header text
         elements = driver.find_elements(By.XPATH, "//main//div[contains(@role, 'row')]//div[contains(@dir, 'auto')]")
         if not elements:
             elements = driver.find_elements(By.XPATH, "//main//div[contains(@class, 'x')]//span")
@@ -125,54 +135,46 @@ def main():
 
     sent_count = 0
     
-    # Extract ID from URL if full link is provided
+    # Extract ID
     if "/t/" in TARGET:
         target_id = re.search(r'/t/(\d+)', TARGET).group(1)
     else:
         target_id = re.sub(r'\D', '', TARGET)
-
+        
     url = f"https://www.instagram.com/direct/t/{target_id}/"
     log(f"🎯 Target Locked: {target_id}")
 
     while sent_count < SLIDER_LIMIT:
         driver = None
+        temp_path = None
+        
         try:
             log("🚀 Launching Browser...")
             driver = get_driver()
+            temp_path = getattr(driver, 'custom_temp_path', None)
             
-            # --- ROBUST COOKIE INJECTION ---
-            try:
-                # 1. Load the real domain first
-                driver.get("https://www.instagram.com/")
-                
-                # 2. WAIT for it to actually initialize
-                time.sleep(5) 
-                
-                # 3. Inject Cookie
-                driver.add_cookie({
-                    'name': 'sessionid', 
-                    'value': COOKIE, 
-                    'domain': '.instagram.com', 
-                    'path': '/'
-                })
-                
-                # 4. Refresh to apply login
-                driver.refresh()
-                time.sleep(5)
-                
-            except Exception as cookie_error:
-                log(f"❌ Cookie Injection Failed: {cookie_error}")
-                driver.quit()
-                continue # Retry the loop
+            # --- REFERENCE LOGIN METHOD ---
+            driver.get("https://www.google.com")
+            driver.get("https://www.instagram.com/")
+            time.sleep(2)
 
-            # 5. Navigate to Chat
+            driver.add_cookie({
+                'name': 'sessionid', 
+                'value': COOKIE, 
+                'path': '/', 
+                'domain': '.instagram.com'
+            })
+            
+            driver.refresh()
+            time.sleep(random.uniform(3, 5))
+            
+            # Navigate to Chat
             driver.get(url)
             time.sleep(5)
             close_popups(driver)
 
-            # Check if login worked
             if "login" in driver.current_url:
-                log("⚠️ Login Failed. Cookie might be expired.")
+                log("⚠️ Cookie Invalid. Redirected to login page.")
                 break
 
             last_msg = get_last_message(driver)
@@ -180,7 +182,7 @@ def main():
             
             session_start = time.time()
 
-            # --- THE SLIDER LOOP ---
+            # --- SLIDER LOOP ---
             while (time.time() - session_start) < SESSION_TIME:
                 if sent_count >= SLIDER_LIMIT: break
 
@@ -196,6 +198,7 @@ def main():
                         sent_count += 1
                         log(f"📤 Sent ({sent_count}/{SLIDER_LIMIT}): {reply}")
                         last_msg = reply 
+                        
                         time.sleep(2)
                         check = get_last_message(driver)
                         if check: last_msg = check
@@ -205,7 +208,16 @@ def main():
         except Exception as e:
             log(f"⚠️ Crash: {e}")
         finally:
-            if driver: driver.quit()
+            if driver: 
+                try: driver.quit()
+                except: pass
+            
+            # Cleanup Temp Files (Reference Logic)
+            if temp_path and os.path.exists(temp_path):
+                try: shutil.rmtree(temp_path, ignore_errors=True)
+                except: pass
+            
+            gc.collect()
             log("♻️ Restarting Session (Memory Cleanup)...")
             time.sleep(5)
 
