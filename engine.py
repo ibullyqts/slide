@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # 📦 STANDARD SELENIUM + STEALTH
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium_stealth import stealth
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -38,31 +39,43 @@ def log_status(agent_id, msg):
 
 def get_driver(agent_id):
     with BROWSER_LAUNCH_LOCK:
-        time.sleep(2) 
+        time.sleep(3) # Give it a moment to breathe
+        
         chrome_options = Options()
         
-        # 🐧 LINUX / SERVER OPTIMIZATIONS
+        # 🛡️ CRASH PREVENTION FLAGS
         chrome_options.add_argument("--headless=new") 
-        chrome_options.add_argument("--no-sandbox") 
-        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage") # Crucial for Docker/Linux
         chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--renderer-process-limit=2")
+        chrome_options.add_argument("--disable-software-rasterizer") # Fixes some rendering crashes
+        chrome_options.add_argument("--remote-debugging-port=0") # Let Chrome pick its own port
+        chrome_options.add_argument("--window-size=375,812")
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-notifications")
         
-        # MOBILE EMULATION (iPhone X Mode - Crucial for this layout)
+        # Mobile Emulation
         mobile_emulation = {
             "deviceMetrics": { "width": 375, "height": 812, "pixelRatio": 3.0 },
             "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
         }
         chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
         
-        temp_dir = os.path.join(tempfile.gettempdir(), f"linux_v100_reply_{int(time.time())}_{agent_id}")
+        # Unique Temp Directory
+        temp_dir = os.path.join(tempfile.gettempdir(), f"linux_v100_reply_{agent_id}_{int(time.time())}")
         chrome_options.add_argument(f"--user-data-dir={temp_dir}")
 
-        driver = webdriver.Chrome(options=chrome_options)
+        # 🔧 USE SERVICE TO HANDLE PORTS AUTOMATICALLY
+        # This prevents the 'Port 58859' errors
+        service = Service(log_output=os.devnull) 
+        
+        try:
+            driver = webdriver.Chrome(options=chrome_options, service=service)
+        except Exception as e:
+            print(f"❌ Driver Launch Failed: {e}")
+            raise e
 
-        # 🪄 APPLY STEALTH
+        # 🪄 Apply Stealth
         stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
@@ -73,6 +86,10 @@ def get_driver(agent_id):
         )
         
         driver.custom_temp_path = temp_dir
+        
+        # Set a hard timeout for page loads (30 seconds)
+        driver.set_page_load_timeout(30)
+        
         return driver
 
 def close_popups(driver):
@@ -119,16 +136,14 @@ def get_last_message_text(driver):
 
     try:
         # Strategy 1: Look for standard message bubbles (Mobile View)
-        # We look for divs that have specific styling usually found in chat bubbles
         elements = driver.find_elements(By.XPATH, "//div[contains(@role, 'row')]//div[contains(@dir, 'auto')]")
         
-        # Strategy 2: Fallback if Strategy 1 fails
+        # Strategy 2: Fallback
         if not elements:
             elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'x')]//span")
             
         if elements:
-            # Iterate backwards to find the first "Real" message
-            # We check the last 5 elements to be safe
+            # Check the last 5 elements to be safe
             check_range = min(len(elements), 5)
             
             for i in range(1, check_range + 1):
@@ -150,7 +165,6 @@ def get_last_message_text(driver):
                         return text
                 except:
                     continue
-                    
     except:
         pass
     return ""
@@ -248,7 +262,6 @@ def run_life_cycle(agent_id, cookie, target, messages):
                             GLOBAL_SENT += 1
                         
                         # 5. Update last_seen_text to what WE just sent
-                        # This ensures we don't reply to ourselves
                         last_seen_text = reply_text 
                         
                         # Wait for UI update
