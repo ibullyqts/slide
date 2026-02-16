@@ -1,87 +1,35 @@
-name: Insta_Reply_Bot_887427387249300
-description: Auto-replies to specific thread ID
-icon: ri-instagram-fill
-settings:
-  blockDelay: 0
-  saveLog: true
-  debugMode: false
-  notification: true
-  execOnLoad: false
-globalData: "[]"
-blocks:
-  - id: trigger
-    type: trigger
-    data:
-      type: manual
-    nextBlockId: new-tab
+name: Insta Bot 24/7
 
-  - id: new-tab
-    type: new-tab
-    data:
-      url: "https://www.instagram.com/direct/t/887427387249300/"
-      description: "Opens Thread 887427387249300"
-    nextBlockId: delay-load
+on:
+  workflow_dispatch:  # Allows manual start button
+  schedule:
+    - cron: '0 */6 * * *' # Runs every 6 hours (restarts automatically)
 
-  - id: delay-load
-    type: delay
-    data:
-      time: 6000
-      description: "Wait 6s for chat to load"
-    nextBlockId: loop-start
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
 
-  - id: loop-start
-    type: loop-data
-    data:
-      loopId: msg_loop
-      loopType: numbers
-      from: 1
-      to: 9999
-      description: "Infinite Loop"
-    nextBlockId: check-msg
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
-  - id: check-msg
-    type: javascript-code
-    data:
-      code: |
-        /* Logic: Get the last message text.
-          If it's NOT from me (or different from last checked), we reply.
-        */
-        const msgs = document.querySelectorAll('div[dir="auto"]');
-        const lastMsg = msgs[msgs.length - 1]?.innerText || '';
-        const badWords = ["Not Now", "Seen", "Active", "Save info"];
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
 
-        // Filter out system text
-        if (badWords.some(w => lastMsg.includes(w))) return null;
+    - name: Install Chrome
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
 
-        if (lastMsg !== automaRefData('last_seen')) {
-          automaSetRefData('last_seen', lastMsg);
-          automaNextBlock(); // Proceed to reply
-        } else {
-          // If same message, wait and loop back
-          return null; 
-        }
-      description: "Check if new message exists"
-    nextBlockId: type-reply
+    - name: Install Dependencies
+      run: pip install -r requirements.txt
 
-  - id: type-reply
-    type: forms
-    data:
-      selector: "div[role='textbox'][contenteditable='true']"
-      value: "Hello! Auto-reply here. 🤖"
-      description: "Type the message"
-    nextBlockId: press-enter
-
-  - id: press-enter
-    type: press-key
-    data:
-      selector: "div[role='textbox'][contenteditable='true']"
-      key: Enter
-      description: "Send Message"
-    nextBlockId: wait-reply
-
-  - id: wait-reply
-    type: delay
-    data:
-      time: 5000
-      description: "Wait before checking again"
-    nextBlockId: loop-start
+    - name: Run Bot
+      env:
+        INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
+        TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
+        MESSAGES: ${{ secrets.MESSAGES }}
+        PROXY_URL: ${{ secrets.PROXY_URL }}
+      run: python main.py
