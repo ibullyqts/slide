@@ -3,7 +3,7 @@ name: Insta Bot 24/7
 on:
   workflow_dispatch:  # Allows manual start button
   schedule:
-    - cron: '0 */6 * * *' # Runs every 6 hours (restarts automatically)
+    - cron: '0 */6 * * *' # Runs every 6 hours
 
 jobs:
   run-bot:
@@ -13,23 +13,19 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v3
 
-    - name: Set up Python
+    - name: Set up Python 3.10
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
-
-    - name: Install Chrome
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y google-chrome-stable
+        python-version: '3.10'  # 👈 CHANGED FROM 3.9 TO 3.10
 
     - name: Install Dependencies
-      run: pip install -r requirements.txt
+      run: |
+        python -m pip install --upgrade pip
+        pip install instagrapi
 
     - name: Run Bot
       env:
         INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
         TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
         MESSAGES: ${{ secrets.MESSAGES }}
-        PROXY_URL: ${{ secrets.PROXY_URL }}
       run: python main.py
