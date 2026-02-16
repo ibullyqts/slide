@@ -52,29 +52,35 @@ def start_engine():
         driver.get(f"https://www.instagram.com/direct/t/{TARGET_ID}/")
         time.sleep(15)
 
-        # --- ACTIVATION PING ---
-        # This part sends a message immediately upon connection
-        ping_text = "Slider by Praveer is now Active! 🚀"
-        ping_script = """
-        var box = document.querySelector('textarea, [role="textbox"], div[contenteditable="true"]');
-        if (box) {
-            box.focus();
-            document.execCommand('insertText', false, arguments[0]);
-            var sendBtn = Array.from(document.querySelectorAll('button, div[role="button"]')).find(b => 
-                b.innerText.includes('Send') || b.getAttribute('aria-label') === 'Send'
-            );
-            if (sendBtn) sendBtn.click();
-            return true;
-        }
-        return false;
-        """
-        if driver.execute_script(ping_script, ping_text):
-            log("📡 Activation Ping Sent!")
-        else:
-            log("⚠️ Failed to send Activation Ping. Box not found.")
-
-        # --- AUTO-REPLY LISTENER ---
+        # --- THE NEW "FORCE-SEND" SCRIPT ---
+        # This function is now shared for both Ping and Replies
         script = """
+        window.forceSend = function(text) {
+            let box = document.querySelector('textarea, [role="textbox"], div[contenteditable="true"]');
+            if (!box) return false;
+            
+            box.focus();
+            document.execCommand('insertText', false, text);
+            
+            // Trigger input events so Instagram "wakes up"
+            box.dispatchEvent(new Event('input', { bubbles: true }));
+            box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+
+            setTimeout(() => {
+                let sendBtn = Array.from(document.querySelectorAll('button, div[role="button"]')).find(b => 
+                    b.innerText.includes('Send') || b.getAttribute('aria-label') === 'Send' || b.querySelector('svg[aria-label="Send"]')
+                );
+                if (sendBtn) {
+                    sendBtn.click();
+                }
+            }, 300);
+            return true;
+        };
+
+        // --- ACTIVATION PING ---
+        window.forceSend("Slider by Praveer is now Active! 🚀");
+
+        // --- LISTENER ---
         window.lastCount = document.querySelectorAll('div[role="row"]').length;
         window.msgs = arguments[0];
         
@@ -94,20 +100,9 @@ def start_engine():
                         console.log("BOT_SIGNAL: REPLY_CLICKED");
                         
                         setTimeout(() => {
-                            let box = document.querySelector('textarea, [role="textbox"], div[contenteditable="true"]');
-                            if (box) {
-                                box.focus();
-                                let txt = window.msgs[Math.floor(Math.random() * window.msgs.length)];
-                                document.execCommand('insertText', false, txt);
-                                
-                                let sendBtn = Array.from(document.querySelectorAll('button, div[role="button"]')).find(b => 
-                                    b.innerText.includes('Send') || b.getAttribute('aria-label') === 'Send'
-                                );
-                                
-                                if (sendBtn) {
-                                    sendBtn.click();
-                                    console.log("BOT_SIGNAL: SENT_SUCCESS");
-                                }
+                            let txt = window.msgs[Math.floor(Math.random() * window.msgs.length)];
+                            if (window.forceSend(txt)) {
+                                console.log("BOT_SIGNAL: SENT_SUCCESS");
                             }
                         }, 500);
                     }
@@ -118,7 +113,7 @@ def start_engine():
         driver.execute_script(script, MESSAGES)
         log("✅ SLIDER ACTIVE. Monitoring for messages...")
         
-        # Monitor logs
+        # Monitor logs for 5 hours
         start_time = time.time()
         while time.time() - start_time < 18000:
             for entry in driver.get_log('browser'):
