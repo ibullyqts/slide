@@ -1,131 +1,133 @@
 """
 =====================================================
-   🚀 INSTAGRAM API BOT (Instagrapi Version)
+   ⚡ HIGH-SPEED SLIDER BOT (No Delays)
    --------------------------------------------------
-   🔥 CREDITS: Script by Praveer
+   🔥 CREDITS: Auto reply by Praveer
    --------------------------------------------------
-   FEATURES:
-   - Uses Official-like API (No Chrome/Selenium)
-   - Auto-Reply Slider Logic (Ping-Pong)
-   - "Typing..." Status Simulation
-   - zero-crash stability for GitHub Actions
+   1. Checks for messages every 0.2 seconds.
+   2. Replies via Session ID (Bypasses login blocks).
+   3. Uses JS Injection for instant sending.
+   4. Optimized for GitHub Actions (Headless).
 =====================================================
 """
 
 import os
-import sys
 import time
 import random
-import subprocess
-from datetime import datetime
+import sys
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from webdriver_manager.chrome import ChromeDriverManager
 
-# --- 1. AUTO-INSTALL INSTAGRAPI ---
-def install(package):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-try:
-    from instagrapi import Client
-except ImportError:
-    print("📦 Installing Instagrapi...")
-    install("instagrapi")
-    print("✅ Installed! Restarting...")
-    os.execv(sys.executable, ['python'] + sys.argv)
-
-# --- 2. CONFIGURATION ---
-# Secrets from GitHub/Env
-SESSION_ID = os.environ.get("INSTA_COOKIE") # Your 'sessionid' cookie value
-THREAD_ID = os.environ.get("TARGET_THREAD_ID") # e.g. 887427387249300
-MESSAGES = os.environ.get("MESSAGES", "Hello|Hi|I am active").split("|")
-
-# Slider Settings
-POLL_INTERVAL = (5, 10)     # Check for new msg every 5-10s
-REPLY_DELAY = (2, 5)        # Wait 2-5s before sending reply (Humanize)
-TOTAL_RUN_TIME = 21000      # 6 Hours (Safe for GitHub Actions)
+# --- CONFIGURATION ---
+# These are pulled from GitHub Secrets for safety
+SESSION_ID = os.environ.get("INSTA_COOKIE") 
+THREAD_ID = os.environ.get("TARGET_THREAD_ID")
+MESSAGES = os.environ.get("MESSAGES", "Hello!|Auto-Reply|Bot Active 🤖").split("|")
 
 def log(msg):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🤖 {msg}", flush=True)
+    print(f"[⚡ SLIDER]: {msg}", flush=True)
+
+def get_driver():
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new") # Required for GitHub Actions
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-notifications")
+    chrome_options.add_argument("--window-size=1920,1080")
+    
+    # Anti-Detection
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    return driver
+
+def get_last_message_text(driver):
+    try:
+        elements = driver.find_elements(By.XPATH, "//div[@role='row']//div[contains(@dir, 'auto')]")
+        if not elements:
+            elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'x')]//div[contains(@dir, 'auto')]")
+        if elements:
+            text = elements[-1].text.strip()
+            if text and text not in ["Message...", "Double tap to like", "Seen"]:
+                return text
+    except: pass
+    return ""
+
+def instant_reply(driver, text):
+    try:
+        box = driver.find_element(By.XPATH, "//div[@contenteditable='true']")
+        box.click()
+        driver.execute_script("""
+            arguments[0].focus();
+            document.execCommand('insertText', false, arguments[1]);
+            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+        """, box, text)
+        time.sleep(0.5)
+        try:
+            driver.find_element(By.XPATH, "//div[text()='Send']").click()
+        except:
+            box.send_keys(Keys.ENTER)
+        return True
+    except: return False
 
 def main():
-    log("🔥 INSTAGRAPI BOT STARTED | BY PRAVEER 🔥")
+    print("=========================================")
+    print("   🚀 AUTO REPLY BY PRAVEER STARTED      ")
+    print("=========================================")
 
     if not SESSION_ID or not THREAD_ID:
-        log("❌ Error: Missing INSTA_COOKIE or TARGET_THREAD_ID")
+        log("❌ Error: Missing SESSION_ID or THREAD_ID in Secrets!")
         sys.exit(1)
 
-    # Clean Thread ID
-    t_id = THREAD_ID.split("/")[-2] if "instagram.com" in THREAD_ID else THREAD_ID
+    driver = get_driver()
     
-    cl = Client()
-    
-    # --- LOGIN ---
-    try:
-        log("🔑 Logging in via Session ID...")
-        cl.login_by_sessionid(SESSION_ID)
-        me = cl.account_info()
-        my_id = me.pk
-        log(f"✅ Logged in as: {me.username} ({my_id})")
-    except Exception as e:
-        log(f"❌ Login Failed: {e}")
-        sys.exit(1)
+    # 1. Open Instagram to set domain
+    driver.get("https://www.instagram.com/")
+    time.sleep(3)
 
-    # --- SLIDER LOOP ---
+    # 2. Inject Session ID
+    log("🔑 Injecting Session ID...")
+    driver.add_cookie({'name': 'sessionid', 'value': SESSION_ID, 'domain': '.instagram.com'})
+    driver.refresh()
+    time.sleep(5)
+
+    # 3. Go to Thread
+    target_url = f"https://www.instagram.com/direct/t/{THREAD_ID}/"
+    log(f"🚀 Navigating to Chat: {THREAD_ID}")
+    driver.get(target_url)
+    time.sleep(5)
+
+    log("✅ LOCKED ON. Monitoring for slides...")
+    last_seen_text = get_last_message_text(driver)
+
+    # --- HIGH SPEED LOOP ---
     start_time = time.time()
-    last_msg_id = None
-    
-    log(f"🎯 Locked on Thread: {t_id}")
-    log("👂 Listening for new messages...")
-
-    while (time.time() - start_time) < TOTAL_RUN_TIME:
+    while (time.time() - start_time) < 21000: # Run for ~6 hours
         try:
-            # 1. Fetch the specific thread
-            thread = cl.direct_thread(t_id)
+            current_text = get_last_message_text(driver)
             
-            # 2. Get the very last message
-            if not thread.messages:
-                time.sleep(5)
-                continue
+            if current_text and current_text != last_seen_text:
+                log(f"📩 New Message: {current_text}")
+                last_seen_text = current_text
                 
-            last_msg = thread.messages[0] # Index 0 is the newest message
-            
-            # 3. Check if it's new AND not from us (The "Slide" Logic)
-            if last_msg.id != last_msg_id:
-                
-                # Check if sender is NOT me
-                if str(last_msg.user_id) != str(my_id):
-                    log(f"📩 Incoming: {last_msg.text}")
-                    
-                    # Update state immediately so we don't double-reply
-                    last_msg_id = last_msg.id
-                    
-                    # Human Delay
-                    delay = random.randint(*REPLY_DELAY)
-                    time.sleep(delay)
-                    
-                    # 4. Simulate Action (Mark seen + Typing)
-                    log("👀 Marking Seen...")
-                    cl.direct_seen(t_id, [last_msg.id])
-                    cl.direct_send_seen(t_id)
-                    
-                    # 5. Send Reply
-                    reply_text = random.choice(MESSAGES)
-                    log(f"📤 Sending: {reply_text}")
-                    cl.direct_answer(t_id, last_msg.item_id, reply_text)
-                    log("✅ Sent!")
+                reply = random.choice(MESSAGES)
+                if instant_reply(driver, reply):
+                    log(f"🚀 Sent: {reply} | Credit: Auto reply by Praveer")
+                    time.sleep(1)
+                    # Re-sync to ignore own reply
+                    my_reply = get_last_message_text(driver)
+                    if my_reply: last_seen_text = my_reply
 
-                else:
-                    # It's our own message, just update ID and wait
-                    if last_msg_id != last_msg.id:
-                        log(f"👤 (Self-Message detected: {last_msg.text})")
-                        last_msg_id = last_msg.id
-
-            # Sleep before next poll
-            time.sleep(random.randint(*POLL_INTERVAL))
-
+            time.sleep(0.2)
         except Exception as e:
-            log(f"⚠️ API Glitch: {e}")
-            time.sleep(10) # Cool down on error
-
-    log("🏁 Time Limit Reached. Bye!")
+            time.sleep(1)
 
 if __name__ == "__main__":
     main()
