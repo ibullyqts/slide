@@ -52,66 +52,68 @@ def start_engine():
         driver.get(f"https://www.instagram.com/direct/t/{TARGET_ID}/")
         time.sleep(15)
 
-        # --- THE NEW "FORCE-SEND" SCRIPT ---
-        # This function is now shared for both Ping and Replies
+        # --- THE RE-ENGINEERED FORCE-SEND & OBSERVER ---
         script = """
+        window.msgs = arguments[0];
+        
         window.forceSend = function(text) {
             let box = document.querySelector('textarea, [role="textbox"], div[contenteditable="true"]');
             if (!box) return false;
-            
             box.focus();
             document.execCommand('insertText', false, text);
-            
-            // Trigger input events so Instagram "wakes up"
             box.dispatchEvent(new Event('input', { bubbles: true }));
-            box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-
+            
             setTimeout(() => {
                 let sendBtn = Array.from(document.querySelectorAll('button, div[role="button"]')).find(b => 
                     b.innerText.includes('Send') || b.getAttribute('aria-label') === 'Send' || b.querySelector('svg[aria-label="Send"]')
                 );
-                if (sendBtn) {
-                    sendBtn.click();
-                }
+                if (sendBtn) sendBtn.click();
             }, 300);
             return true;
         };
 
-        // --- ACTIVATION PING ---
+        // 1. Send Activation Ping
         window.forceSend("Slider by Praveer is now Active! 🚀");
 
-        // --- LISTENER ---
-        window.lastCount = document.querySelectorAll('div[role="row"]').length;
-        window.msgs = arguments[0];
+        // 2. Setup Mutation Observer (The Unbreakable Listener)
+        const chatContainer = document.querySelector('div[role="main"]') || document.body;
         
-        setInterval(() => {
-            let rows = document.querySelectorAll('div[role="row"]');
-            if (rows.length > window.lastCount) {
-                console.log("BOT_SIGNAL: NEW_MESSAGE_DETECTED");
-                window.lastCount = rows.length;
-                let lastRow = rows[rows.length - 1];
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.addedNodes.length) {
+                    let rows = document.querySelectorAll('div[role="row"]');
+                    let lastRow = rows[rows.length - 1];
 
-                if (!lastRow.innerText.includes('You sent') && !lastRow.innerText.includes('Slider by Praveer')) {
-                    let replyBtn = lastRow.querySelector('button[aria-label="Reply"]') || 
-                                   lastRow.querySelector('svg[aria-label="Reply"]')?.closest('button');
-
-                    if (replyBtn) {
-                        replyBtn.click();
-                        console.log("BOT_SIGNAL: REPLY_CLICKED");
+                    if (lastRow && !lastRow.innerText.includes('You sent') && !lastRow.dataset.replied) {
+                        console.log("BOT_SIGNAL: NEW_MESSAGE_DETECTED");
                         
-                        setTimeout(() => {
-                            let txt = window.msgs[Math.floor(Math.random() * window.msgs.length)];
-                            if (window.forceSend(txt)) {
-                                console.log("BOT_SIGNAL: SENT_SUCCESS");
-                            }
-                        }, 500);
+                        // Mark as replied so we don't spam the same message
+                        lastRow.dataset.replied = "true";
+
+                        let replyBtn = lastRow.querySelector('button[aria-label="Reply"]') || 
+                                       lastRow.querySelector('svg[aria-label="Reply"]')?.closest('button');
+
+                        if (replyBtn) {
+                            replyBtn.click();
+                            console.log("BOT_SIGNAL: REPLY_CLICKED");
+                            
+                            setTimeout(() => {
+                                let txt = window.msgs[Math.floor(Math.random() * window.msgs.length)];
+                                if (window.forceSend(txt)) {
+                                    console.log("BOT_SIGNAL: SENT_SUCCESS");
+                                }
+                            }, 500);
+                        }
                     }
                 }
-            }
-        }, 1000);
+            });
+        });
+
+        observer.observe(chatContainer, { childList: true, subtree: true });
+        console.log("BOT_SIGNAL: OBSERVER_ATTACHED");
         """
         driver.execute_script(script, MESSAGES)
-        log("✅ SLIDER ACTIVE. Monitoring for messages...")
+        log("✅ SLIDER ACTIVE. MutationObserver attached.")
         
         # Monitor logs for 5 hours
         start_time = time.time()
@@ -128,7 +130,4 @@ def start_engine():
         driver.quit()
 
 if __name__ == "__main__":
-    if not RAW_COOKIE or not TARGET_ID:
-        log("❌ Error: Secrets not found!")
-        sys.exit(1)
     start_engine()
