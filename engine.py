@@ -21,14 +21,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # --- CONFIGURATION ---
-THREADS = 1             # set to 1 for reply logic (safer to avoid race conditions)
-TOTAL_DURATION = 25000  
-SESSION_MIN_SEC = 300   # Increased session time for listening
+THREADS = 1             # Keep at 1 for reply logic
+TOTAL_DURATION = 25000  # Total run time (seconds)
+SESSION_MIN_SEC = 300   # Restart browser every 5 minutes (to clear RAM)
+
 GLOBAL_SENT = 0
 COUNTER_LOCK = threading.Lock()
 BROWSER_LAUNCH_LOCK = threading.Lock()
 
-# Force UTF-8
+# Force UTF-8 output
 sys.stdout.reconfigure(encoding='utf-8')
 
 def log_status(agent_id, msg):
@@ -40,7 +41,7 @@ def get_driver(agent_id):
         time.sleep(2) 
         chrome_options = Options()
         
-        # 🐧 LINUX OPTIMIZATIONS
+        # 🐧 LINUX / SERVER OPTIMIZATIONS
         chrome_options.add_argument("--headless=new") 
         chrome_options.add_argument("--no-sandbox") 
         chrome_options.add_argument("--disable-dev-shm-usage")
@@ -49,14 +50,14 @@ def get_driver(agent_id):
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-notifications")
         
-        # MOBILE EMULATION (iPhone X Mode)
+        # MOBILE EMULATION (iPhone X Mode - Crucial for this layout)
         mobile_emulation = {
             "deviceMetrics": { "width": 375, "height": 812, "pixelRatio": 3.0 },
             "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
         }
         chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
         
-        temp_dir = os.path.join(tempfile.gettempdir(), f"linux_v100_reply_{int(time.time())}")
+        temp_dir = os.path.join(tempfile.gettempdir(), f"linux_v100_reply_{int(time.time())}_{agent_id}")
         chrome_options.add_argument(f"--user-data-dir={temp_dir}")
 
         driver = webdriver.Chrome(options=chrome_options)
@@ -74,6 +75,22 @@ def get_driver(agent_id):
         driver.custom_temp_path = temp_dir
         return driver
 
+def close_popups(driver):
+    """
+    Closes 'Turn on Notifications' or 'Save Info' popups
+    """
+    try:
+        # Look for "Not Now" buttons
+        buttons = driver.find_elements(By.XPATH, "//button[contains(text(), 'Not Now')] | //button[contains(text(), 'Not now')]")
+        if buttons:
+            for btn in buttons:
+                try: 
+                    btn.click()
+                    time.sleep(1)
+                except: pass
+    except:
+        pass
+
 def find_mobile_box(driver):
     selectors = ["//textarea", "//div[@role='textbox']", "//div[contains(@contenteditable, 'true')]"]
     for xpath in selectors:
@@ -86,11 +103,10 @@ def find_mobile_box(driver):
 def get_last_message_text(driver):
     """
     Scrapes the chat to find the text of the very last message bubble.
+    Ignores system text like 'Seen', 'Today', etc.
     """
     try:
         # Broad selector for message bubbles in mobile view
-        # We look for div elements that likely contain the message text
-        # This is a generic approach to avoid constantly changing class names
         elements = driver.find_elements(By.XPATH, "//div[contains(@role, 'row')]//div[contains(@dir, 'auto')]")
         
         if not elements:
@@ -98,7 +114,11 @@ def get_last_message_text(driver):
             elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'x')]//span")
             
         if elements:
-            return elements[-1].text.strip()
+            text = elements[-1].text.strip()
+            # Filter out common UI noise if the popup click failed
+            if text in ["Not Now", "Turn On", "Seen", "Double tap to like"]:
+                return ""
+            return text
     except:
         pass
     return ""
@@ -153,13 +173,15 @@ def run_life_cycle(agent_id, cookie, target, messages):
             driver.get(f"https://www.instagram.com/direct/t/{target}/")
             time.sleep(5) 
             
-            log_status(agent_id, "[LISTEN] Connected to chat. Waiting for messages...")
+            # --- CRITICAL FIX: CLOSE POPUPS ---
+            close_popups(driver)
+            time.sleep(2)
             
-            # --- REPLY LOGIC START ---
+            log_status(agent_id, "[LISTEN] Connected to chat. Waiting for new messages...")
             
-            # 1. Take a snapshot of the current last message so we don't reply to history
+            # 1. Take a snapshot of the current last message
             last_seen_text = get_last_message_text(driver)
-            log_status(agent_id, f"Initial last message: {last_seen_text[:20]}...")
+            log_status(agent_id, f"Initial state: '{last_seen_text[:20]}'")
 
             msg_box = find_mobile_box(driver)
 
@@ -176,44 +198,40 @@ def run_life_cycle(agent_id, cookie, target, messages):
                 # 2. Check current last message
                 current_text = get_last_message_text(driver)
 
-                # 3. If the text has CHANGED, it means a new message arrived (or we sent one)
+                # 3. If the text has CHANGED, it means a new message arrived
                 if current_text and current_text != last_seen_text:
                     
-                    # Optional: Add a check here if you want to ensure YOU didn't just send it
-                    # But simpler logic is: we just assume if it changed, we should reply (ping-pong)
+                    log_status(agent_id, f"[NEW MSG] >> {current_text[:30]}")
                     
-                    log_status(agent_id, f"[NEW MSG DETECTED] >> {current_text[:30]}")
-                    
-                    # Wait a bit to simulate reading
-                    time.sleep(random.uniform(2, 5))
+                    # Wait a random time to simulate reading/typing
+                    time.sleep(random.uniform(2, 6))
                     
                     # 4. Pick a reply and send
                     reply_text = random.choice(messages)
                     
                     if adaptive_inject(driver, msg_box, f"{reply_text}"):
-                        log_status(agent_id, f"[REPLY SENT] >> {reply_text}")
+                        log_status(agent_id, f"[REPLY] >> {reply_text}")
                         with COUNTER_LOCK:
                             global GLOBAL_SENT
                             GLOBAL_SENT += 1
                         
-                        # 5. IMPORTANT: Update last_seen_text to what WE just sent
-                        # This prevents the bot from replying to its own message in the next loop
-                        # because 'current_text' will match 'last_seen_text' until THEY reply
+                        # 5. Update last_seen_text to what WE just sent
+                        # This ensures we don't reply to ourselves
                         last_seen_text = reply_text 
                         
-                        # Wait for the UI to update so our own message is definitely the last one
+                        # Wait for UI update
                         time.sleep(3) 
                         
-                        # Double check the actual UI text to be safe
+                        # Verify UI state
                         actual_ui_text = get_last_message_text(driver)
                         if actual_ui_text:
                             last_seen_text = actual_ui_text
 
-                time.sleep(1) # Check every 1 second
+                time.sleep(1.5) # Check loop frequency
 
         except Exception as e:
             err_msg = str(e).encode('ascii', 'ignore').decode('ascii')
-            log_status(agent_id, f"[ERROR] Glitch: {err_msg[:50]}...")
+            log_status(agent_id, f"[ERROR] {err_msg[:50]}...")
         
         finally:
             log_status(agent_id, "[CLEAN] ♻️ Restarting Session...")
@@ -240,7 +258,6 @@ def main():
     try: subprocess.run("pkill -f chrome", shell=True)
     except: pass
 
-    # Use 1 thread for reply logic to avoid conflict
     with ThreadPoolExecutor(max_workers=THREADS) as executor:
         for i in range(THREADS):
             executor.submit(run_life_cycle, i+1, cookie, target, messages)
