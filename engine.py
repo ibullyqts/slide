@@ -1,301 +1,205 @@
+"""
+=====================================================
+   📸 INSTAGRAM AUTO-REPLY BOT (GitHub Actions Ready)
+   --------------------------------------------------
+   🔥 CREDITS: Script by Praveer
+   --------------------------------------------------
+   FEATURES:
+   - Auto-Installs its own requirements
+   - "Slider" Logic (Loop Limit)
+   - "Not Now" Popup Bypass
+   - Scoped Message Reader (Fixes 'ritu.zii' bug)
+=====================================================
+"""
+
 import os
-import time
-import re
-import random
-import datetime
-import threading
 import sys
-import gc
-import tempfile
+import time
 import subprocess
-import shutil
-from concurrent.futures import ThreadPoolExecutor
+import random
+import re
+from datetime import datetime
 
-# 📦 STANDARD SELENIUM + STEALTH
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium_stealth import stealth
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.options import Options
+# --- 1. AUTO-INSTALL REQUIREMENTS INSIDE CODE ---
+def install(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
-# --- CONFIGURATION ---
-THREADS = 1             
-TOTAL_DURATION = 25000  
-SESSION_MIN_SEC = 300   
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.common.keys import Keys
+    from selenium_stealth import stealth
+except ImportError:
+    print("📦 Installing missing requirements...")
+    install("selenium")
+    install("selenium-stealth")
+    install("webdriver-manager")
+    print("✅ Requirements Installed! Restarting...")
+    os.execv(sys.executable, ['python'] + sys.argv)
 
-GLOBAL_SENT = 0
-COUNTER_LOCK = threading.Lock()
-BROWSER_LAUNCH_LOCK = threading.Lock()
+# --- 2. CONFIGURATION (THE SLIDER) ---
+# Secrets (Set these in GitHub Secrets or Env Vars)
+COOKIE = os.environ.get("INSTA_COOKIE")
+TARGET = os.environ.get("TARGET_THREAD_ID")  # Numeric ID (e.g., 887427387249300)
+MESSAGES = os.environ.get("MESSAGES", "Hello|Hi|Bot Active").split("|")
 
-sys.stdout.reconfigure(encoding='utf-8')
+# 🎚️ THE SLIDER (Loop Controls)
+SLIDER_LIMIT = 1000       # How many messages to send before stopping
+SLIDER_DELAY = (10, 30)   # Wait 10-30s between replies (Safety Slider)
+SESSION_TIME = 600        # Restart browser every 10 mins (Memory Saver)
 
-def log_status(agent_id, msg):
-    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-    print(f"[{timestamp}] Agent {agent_id}: {msg}", flush=True)
+def log(msg):
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🤖 {msg}", flush=True)
 
-def clean_target_url(target_input):
-    """
-    Cleans the input to ensure we get a valid Instagram Direct URL.
-    Accepts: "123456" OR "https://www.instagram.com/direct/t/123456/"
-    """
-    # If user pasted full URL, extract the ID
-    match = re.search(r'/t/(\d+)', target_input)
-    if match:
-        thread_id = match.group(1)
-    else:
-        # Assume it's just the ID
-        thread_id = re.sub(r'\D', '', target_input) # Remove non-digits
-        
-    return f"https://www.instagram.com/direct/t/{thread_id}/"
+def get_driver():
+    options = Options()
+    # GitHub Actions / Headless Config
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=375,812")
+    options.add_argument("--disable-notifications")
+    
+    # iPhone User Agent (Critical for this selector logic)
+    mobile_emulation = {
+        "deviceMetrics": { "width": 375, "height": 812, "pixelRatio": 3.0 },
+        "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
+    }
+    options.add_experimental_option("mobileEmulation", mobile_emulation)
 
-def get_driver(agent_id):
-    with BROWSER_LAUNCH_LOCK:
-        time.sleep(3) 
-        chrome_options = Options()
-        
-        # 🛡️ STABILITY FLAGS
-        chrome_options.add_argument("--headless=new") 
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-software-rasterizer")
-        chrome_options.add_argument("--remote-debugging-port=0")
-        chrome_options.add_argument("--window-size=375,812")
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-notifications")
-        
-        mobile_emulation = {
-            "deviceMetrics": { "width": 375, "height": 812, "pixelRatio": 3.0 },
-            "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
-        }
-        chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
-        
-        temp_dir = os.path.join(tempfile.gettempdir(), f"linux_v100_reply_{agent_id}_{int(time.time())}")
-        chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+    # Proxy Support (Optional)
+    if os.environ.get("PROXY_URL"):
+        options.add_argument(f'--proxy-server={os.environ.get("PROXY_URL")}')
 
-        service = Service(log_output=os.devnull) 
-        
-        try:
-            driver = webdriver.Chrome(options=chrome_options, service=service)
-        except Exception as e:
-            print(f"❌ Driver Launch Failed: {e}")
-            raise e
+    service = Service(log_output=os.devnull)
+    driver = webdriver.Chrome(options=options, service=service)
 
-        stealth(driver,
-            languages=["en-US", "en"],
-            vendor="Google Inc.",
-            platform="Linux armv8l", 
-            webgl_vendor="ARM",
-            renderer="Mali-G76",
-            fix_hairline=True,
-        )
-        
-        driver.custom_temp_path = temp_dir
-        driver.set_page_load_timeout(30)
-        return driver
+    stealth(driver,
+        languages=["en-US", "en"],
+        vendor="Google Inc.",
+        platform="Linux armv8l",
+        webgl_vendor="ARM",
+        renderer="Mali-G76",
+        fix_hairline=True,
+    )
+    return driver
 
 def close_popups(driver):
+    """Closes 'Not Now', 'Save Info', 'Add to Home'"""
     try:
-        # "Not Now" buttons
-        xpath = "//button[contains(text(), 'Not Now')] | //button[contains(text(), 'Not now')]"
-        buttons = driver.find_elements(By.XPATH, xpath)
-        for btn in buttons:
-            try:
-                btn.click()
-                time.sleep(0.5)
-            except:
-                driver.execute_script("arguments[0].click();", btn)
-        
-        # "Cancel" buttons
-        try:
-            cancel = driver.find_element(By.XPATH, "//button[contains(text(), 'Cancel')]")
-            cancel.click()
-        except: pass
+        xpath = "//button[contains(text(), 'Not Now')] | //button[contains(text(), 'Not now')] | //button[contains(text(), 'Cancel')]"
+        for btn in driver.find_elements(By.XPATH, xpath):
+            driver.execute_script("arguments[0].click();", btn)
+            time.sleep(0.5)
     except: pass
 
-def find_mobile_box(driver):
-    selectors = ["//textarea", "//div[@role='textbox']", "//div[contains(@contenteditable, 'true')]"]
-    for xpath in selectors:
-        try: 
-            el = driver.find_element(By.XPATH, xpath)
-            return el
-        except: continue
-    return None
-
-def get_last_message_text(driver):
+def get_last_message(driver):
     """
-    Scrapes the chat to find the text of the very last message.
-    Scopes to <main> to avoid reading the Header/Username.
+    Reads the last message bubble.
+    Scopes to <main> to avoid reading the header/username.
     """
-    IGNORE_LIST = [
-        "Not Now", "Not now", "Turn On", "Turn on", 
-        "Seen", "Double tap to like", "Send", 
-        "Active now", "Active today", "Save info", 
-        "Save your login info", "The link you followed"
-    ]
-
+    IGNORE = ["Not Now", "Seen", "Active", "Save info", "Double tap", "The link you followed"]
     try:
-        # 🚫 DYNAMIC IGNORE: Add the Chat Title (Target Name)
-        try:
-            header_title = driver.find_element(By.TAG_NAME, "h1").text.strip()
-            if header_title: IGNORE_LIST.append(header_title)
-        except: pass
-
-        # 🎯 SCOPED SELECTOR: Look inside <main> tag
+        # Scoped Selector (Fixes 'ritu.zii' bug)
         elements = driver.find_elements(By.XPATH, "//main//div[contains(@role, 'row')]//div[contains(@dir, 'auto')]")
-        
         if not elements:
             elements = driver.find_elements(By.XPATH, "//main//div[contains(@class, 'x')]//span")
             
         if elements:
-            check_range = min(len(elements), 5)
-            for i in range(1, check_range + 1):
-                try:
-                    text_obj = elements[-i]
-                    text = text_obj.text.strip()
-                    if not text: continue
-
-                    is_ignored = False
-                    for bad_word in IGNORE_LIST:
-                        if bad_word in text:
-                            is_ignored = True
-                            break
-                    
-                    if not is_ignored:
-                        return text
-                except: continue
-    except:
-        pass
+            for i in range(1, min(len(elements), 5) + 1):
+                text = elements[-i].text.strip()
+                if not text: continue
+                if any(bad in text for bad in IGNORE): continue
+                return text
+    except: pass
     return ""
 
-def adaptive_inject(driver, element, text):
+def send_msg(driver, text):
     try:
-        driver.execute_script("arguments[0].click();", element)
-        driver.execute_script("""
-            var el = arguments[0];
-            document.execCommand('insertText', false, arguments[1]);
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-        """, element, text)
-        
+        box = driver.find_element(By.XPATH, "//div[@role='textbox'][contains(@contenteditable, 'true')]")
+        driver.execute_script("arguments[0].focus();", box)
+        driver.execute_script(f"document.execCommand('insertText', false, '{text}');")
+        box.send_keys(" ") 
         time.sleep(0.5)
-        try:
-            btn = driver.find_element(By.XPATH, "//div[contains(text(), 'Send')] | //button[text()='Send']")
-            driver.execute_script("arguments[0].click();", btn)
-        except:
-            element.send_keys(Keys.ENTER)
+        box.send_keys(Keys.ENTER)
         return True
-    except:
-        return False
-
-def extract_session_id(raw_cookie):
-    match = re.search(r'sessionid=([^;]+)', raw_cookie)
-    return match.group(1).strip() if match else raw_cookie.strip()
-
-def run_life_cycle(agent_id, cookie, target, messages):
-    global_start = time.time()
-    
-    # 🧼 Clean the URL logic here
-    final_url = clean_target_url(target)
-    log_status(agent_id, f"Targeting URL: {final_url}")
-
-    while (time.time() - global_start) < TOTAL_DURATION:
-        driver = None
-        temp_path = None
-        session_start = time.time()
-        
-        try:
-            log_status(agent_id, "[START] Launching Browser...")
-            driver = get_driver(agent_id)
-            temp_path = getattr(driver, 'custom_temp_path', None)
-            
-            driver.get("https://www.instagram.com/")
-            time.sleep(2) 
-
-            clean_session = extract_session_id(cookie)
-            driver.add_cookie({'name': 'sessionid', 'value': clean_session, 'path': '/', 'domain': '.instagram.com'})
-            driver.refresh()
-            time.sleep(random.uniform(3, 5)) 
-            
-            # Navigate to the cleaned URL
-            driver.get(final_url)
-            time.sleep(5) 
-            
-            close_popups(driver)
-            time.sleep(2)
-            
-            # Check for 404 / Broken Link
-            page_text = driver.find_element(By.TAG_NAME, "body").text
-            if "link you followed" in page_text or "Page Not Found" in page_text:
-                log_status(agent_id, "❌ ERROR: Broken Link / Invalid ID. Checking next...")
-                break
-
-            log_status(agent_id, "[LISTEN] Connected. Scoping messages...")
-            
-            last_seen_text = get_last_message_text(driver)
-            log_status(agent_id, f"Initial state (Last Msg): '{last_seen_text[:20]}'")
-
-            msg_box = find_mobile_box(driver)
-
-            while (time.time() - session_start) < SESSION_MIN_SEC:
-                if (time.time() - global_start) > TOTAL_DURATION: break
-
-                if not msg_box:
-                    msg_box = find_mobile_box(driver)
-                    if not msg_box:
-                        time.sleep(2)
-                        continue
-
-                current_text = get_last_message_text(driver)
-
-                if current_text and current_text != last_seen_text:
-                    log_status(agent_id, f"[NEW MSG] >> {current_text[:30]}")
-                    time.sleep(random.uniform(2, 6))
-                    
-                    reply_text = random.choice(messages)
-                    if adaptive_inject(driver, msg_box, f"{reply_text}"):
-                        log_status(agent_id, f"[REPLY] >> {reply_text}")
-                        with COUNTER_LOCK:
-                            global GLOBAL_SENT
-                            GLOBAL_SENT += 1
-                        
-                        last_seen_text = reply_text 
-                        time.sleep(3) 
-                        
-                        actual_ui_text = get_last_message_text(driver)
-                        if actual_ui_text: last_seen_text = actual_ui_text
-
-                time.sleep(1.5)
-
-        except Exception as e:
-            err_msg = str(e).encode('ascii', 'ignore').decode('ascii')
-            log_status(agent_id, f"[ERROR] {err_msg[:50]}...")
-        
-        finally:
-            log_status(agent_id, "[CLEAN] ♻️ Restarting Session...")
-            if driver: 
-                try: driver.quit()
-                except: pass
-            if temp_path and os.path.exists(temp_path):
-                try: shutil.rmtree(temp_path, ignore_errors=True)
-                except: pass
-            gc.collect() 
-            time.sleep(3) 
+    except: return False
 
 def main():
-    cookie = os.environ.get("INSTA_COOKIE", "").strip()
-    target = os.environ.get("TARGET_THREAD_ID", "887427387249300").strip()
-    messages = os.environ.get("MESSAGES", "tmkc|cud").split("|")
-    
-    if len(cookie) < 5:
+    print("=========================================")
+    print("   🔥 INSTA BOT STARTED | BY PRAVEER 🔥   ")
+    print("=========================================")
+
+    if not COOKIE or not TARGET:
+        log("❌ Error: Missing ENV Variables (INSTA_COOKIE or TARGET_THREAD_ID)")
         sys.exit(1)
 
-    try: subprocess.run("pkill -f chrome", shell=True)
-    except: pass
+    sent_count = 0
+    
+    # Clean Target URL Logic
+    target_id = re.sub(r'\D', '', TARGET) if "/t/" not in TARGET else re.search(r'/t/(\d+)', TARGET).group(1)
+    url = f"https://www.instagram.com/direct/t/{target_id}/"
+    log(f"🎯 Target Locked: {url}")
 
-    with ThreadPoolExecutor(max_workers=THREADS) as executor:
-        for i in range(THREADS):
-            executor.submit(run_life_cycle, i+1, cookie, target, messages)
+    while sent_count < SLIDER_LIMIT:
+        driver = None
+        try:
+            log("🚀 Launching Browser...")
+            driver = get_driver()
+            
+            # 1. Login via Cookie
+            driver.get("https://www.instagram.com/")
+            driver.add_cookie({'name': 'sessionid', 'value': COOKIE, 'domain': '.instagram.com', 'path': '/'})
+            driver.refresh()
+            time.sleep(5)
+
+            # 2. Go to Thread
+            driver.get(url)
+            time.sleep(5)
+            close_popups(driver)
+
+            last_msg = get_last_message(driver)
+            log(f"✅ Connected. Last msg seen: '{last_msg}'")
+            
+            session_start = time.time()
+
+            # 3. Listen Loop (The Slider)
+            while (time.time() - session_start) < SESSION_TIME:
+                if sent_count >= SLIDER_LIMIT: break
+
+                current_msg = get_last_message(driver)
+                
+                if current_msg and current_msg != last_msg:
+                    log(f"📩 Incoming: {current_msg}")
+                    
+                    # Wait (Slider Delay)
+                    wait_time = random.randint(*SLIDER_DELAY)
+                    time.sleep(wait_time)
+                    
+                    reply = random.choice(MESSAGES)
+                    if send_msg(driver, reply):
+                        sent_count += 1
+                        log(f"📤 Sent ({sent_count}/{SLIDER_LIMIT}): {reply}")
+                        last_msg = reply 
+                        
+                        # Verify UI update
+                        time.sleep(2)
+                        check = get_last_message(driver)
+                        if check: last_msg = check
+                
+                time.sleep(2) # Check frequency
+
+        except Exception as e:
+            log(f"⚠️ Crash: {e}")
+        finally:
+            if driver: driver.quit()
+            log("♻️ Restarting Session (Memory Cleanup)...")
+            time.sleep(5)
+
+    log("🏁 Slider Limit Reached. Bye Praveer!")
 
 if __name__ == "__main__":
     main()
