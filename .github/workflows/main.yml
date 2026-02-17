@@ -19,8 +19,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install instagrapi
-
+          pip install instagrapi PySocks
+    
       - name: Run Bot
         env:
           INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
