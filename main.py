@@ -1,12 +1,12 @@
 """
 =====================================================
-   ⚡ HIGH-SPEED SLIDER BOT (Reload + Force Send)
+   🚀 INSTAGRAPI SLIDER (Proxy + Session ID)
    --------------------------------------------------
    🔥 CREDITS: Auto reply by Praveer
    --------------------------------------------------
-   1. Navigates to Chat -> RELOADS once.
-   2. Uses JS Injection for instant sending.
-   3. Verifies if message sent; if not, retries.
+   - Proxy: OwlProxy (USA Custom Zone)
+   - Method: Quoted/Swipe Reply
+   - Platform: GitHub Actions
 =====================================================
 """
 
@@ -14,133 +14,99 @@ import os
 import time
 import random
 import sys
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from webdriver_manager.chrome import ChromeDriverManager
+from instagrapi import Client
 
-# --- CONFIGURATION ---
-SESSION_ID = os.environ.get("INSTA_COOKIE") 
+# --- CONFIGURATION (GitHub Secrets) ---
+SESSION_ID = os.environ.get("INSTA_COOKIE")
 THREAD_ID = os.environ.get("TARGET_THREAD_ID")
-MESSAGES = os.environ.get("MESSAGES", "Hello!|Auto-Reply|Bot Active 🤖").split("|")
+MESSAGES = os.environ.get("MESSAGES", "Hello!|Auto-Reply by Praveer|Active ⚡").split("|")
+
+# --- PROXY CONFIGURATION ---
+PROXY_URL = "http://EibxO4p1dJ50_custom_zone_US_st__city_sid_87773395_time_5:2281862@change4.owlproxy.com:7778"
 
 def log(msg):
-    print(f"[⚡ SLIDER]: {msg}", flush=True)
-
-def get_driver():
-    chrome_options = Options()
-    chrome_options.add_argument("--headless=new") 
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-notifications")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
-
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    return driver
-
-def get_last_message_text(driver):
-    try:
-        elements = driver.find_elements(By.XPATH, "//div[@role='row']//div[contains(@dir, 'auto')]")
-        if not elements:
-            elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'x')]//div[contains(@dir, 'auto')]")
-        if elements:
-            text = elements[-1].text.strip()
-            if text and text not in ["Message...", "Double tap to like", "Seen"]:
-                return text
-    except: pass
-    return ""
-
-def instant_reply(driver, text):
-    try:
-        # Find the typing box
-        box = driver.find_element(By.XPATH, "//div[@contenteditable='true']")
-        box.click()
-        
-        # Inject text
-        driver.execute_script("""
-            arguments[0].focus();
-            document.execCommand('insertText', false, arguments[1]);
-            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-        """, box, text)
-        time.sleep(1) # Wait for Send button to activate
-
-        # Click Send (Try multiple selectors)
-        sent = False
-        send_selectors = ["//div[text()='Send']", "//button[text()='Send']", "//div[@role='button' and text()='Send']"]
-        
-        for selector in send_selectors:
-            try:
-                btn = driver.find_element(By.XPATH, selector)
-                btn.click()
-                sent = True
-                break
-            except: continue
-        
-        if not sent:
-            box.send_keys(Keys.ENTER)
-        
-        return True
-    except: return False
+    print(f"[🤖 BOT]: {msg}", flush=True)
 
 def main():
     print("=========================================")
-    print("   🚀 AUTO REPLY BY PRAVEER STARTED      ")
+    print("   🚀 INSTAGRAPI BOT BY PRAVEER          ")
     print("=========================================")
 
     if not SESSION_ID or not THREAD_ID:
-        log("❌ Error: Missing Secrets!")
+        log("❌ Error: Missing SESSION_ID or THREAD_ID in Secrets!")
         sys.exit(1)
 
-    driver = get_driver()
-    driver.get("https://www.instagram.com/")
-    time.sleep(3)
+    cl = Client()
+    
+    # 1. Set Proxy
+    log("🌐 Setting up OwlProxy...")
+    cl.set_proxy(PROXY_URL)
 
-    log("🔑 Injecting Session ID...")
-    driver.add_cookie({'name': 'sessionid', 'value': SESSION_ID, 'domain': '.instagram.com'})
-    driver.refresh()
-    time.sleep(5)
+    # 2. Randomize Device (Prevents Fingerprint Bans)
+    log("📱 Generating new device fingerprint...")
+    cl.set_device({
+        "app_version": "269.0.0.18.75",
+        "android_version": random.randint(28, 33),
+        "android_release": str(random.randint(9, 13)),
+        "dpi": "440dpi",
+        "resolution": "1080x2280",
+        "manufacturer": "Samsung",
+        "device": "galaxy-s21",
+        "model": "SM-G991B",
+        "cpu": "exynos2100",
+        "version_code": "314578889"
+    })
 
-    # 1. First Navigation
-    target_url = f"https://www.instagram.com/direct/t/{THREAD_ID}/"
-    log(f"🚀 Navigating to Chat: {THREAD_ID}")
-    driver.get(target_url)
-    time.sleep(5)
+    # 3. Login via Session ID
+    try:
+        log("🔑 Authenticating via Session ID...")
+        cl.login_by_sessionid(SESSION_ID)
+        me = cl.account_info()
+        log(f"✅ Success! Logged in as: {me.username}")
+    except Exception as e:
+        log(f"❌ Login Failed: {e}")
+        log("💡 TIP: Check if your Session ID is expired or if the Proxy is active.")
+        sys.exit(1)
 
-    # 2. THE RELOAD (New Step requested)
-    log("🔄 Reloading page once for stability...")
-    driver.refresh()
-    time.sleep(7) 
+    log(f"🎯 Monitoring Thread: {THREAD_ID}")
+    last_msg_id = None
 
-    log("✅ LOCKED ON. Monitoring for slides...")
-    last_seen_text = get_last_message_text(driver)
-
-    start_time = time.time()
-    while (time.time() - start_time) < 21000:
+    # --- HIGH SPEED API LOOP ---
+    while True:
         try:
-            current_text = get_last_message_text(driver)
+            # Fetch the thread
+            thread = cl.direct_thread(THREAD_ID)
+            if not thread.messages:
+                time.sleep(2)
+                continue
             
-            if current_text and current_text != last_seen_text:
-                log(f"📩 New Message: {current_text}")
-                last_seen_text = current_text
-                
-                reply = random.choice(MESSAGES)
-                if instant_reply(driver, reply):
-                    log(f"🚀 Sent: {reply} | Credit: Auto reply by Praveer")
-                    time.sleep(2) # Give it a moment to post
-                    
-                    # Sync to ignore our own message
-                    my_reply = get_last_message_text(driver)
-                    if my_reply: last_seen_text = my_reply
+            last_msg = thread.messages[0]
 
-            time.sleep(0.5)
+            # Check if it's a new message and NOT from us
+            if last_msg.id != last_msg_id:
+                if str(last_msg.user_id) != str(me.pk):
+                    log(f"📩 New Message: {last_msg.text}")
+                    last_msg_id = last_msg.id
+                    
+                    # Choose random reply
+                    reply_text = random.choice(MESSAGES)
+                    
+                    # 4. SWIPE/QUOTE REPLY
+                    # This quotes the user's message in the reply
+                    cl.direct_answer(THREAD_ID, reply_text, replied_to_message_id=last_msg.id)
+                    
+                    log(f"🚀 Sent Quoted Reply: {reply_text}")
+                    log("🔥 Credit: Auto reply by Praveer")
+                else:
+                    # Sync ID if we sent the last message
+                    last_msg_id = last_msg.id
+
+            # Poll every 2 seconds (API is faster than browser)
+            time.sleep(2)
+
         except Exception as e:
-            time.sleep(1)
+            log(f"⚠️ Error: {e}")
+            time.sleep(10)
 
 if __name__ == "__main__":
     main()
