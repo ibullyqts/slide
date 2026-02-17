@@ -1,4 +1,4 @@
-name: Praveer Insta Slider
+name: Praveer Insta Slider API
 
 on:
   workflow_dispatch:
@@ -19,11 +19,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install selenium webdriver-manager
+          pip install instagrapi
 
       - name: Run Bot
         env:
           INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
           TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
-          MESSAGES: "OY TMKC|TEZ RO|BHAV NY DUNGA|CHAL PRAVEER PAPA BOL ⚡|RAJESH BHANGI EY"
+          MESSAGES: "Hello!|Auto-Reply by Praveer|Active ⚡|Got your message!"
         run: python main.py
