@@ -1,6 +1,6 @@
 """
 =====================================================
-   🚀 INSTAGRAPI SLIDER (SOCKS5 Edition)
+   🚀 INSTAGRAPI DYNAMIC SLIDER (Free Credit Mode)
    --------------------------------------------------
    🔥 CREDITS: Auto reply by Praveer
 =====================================================
@@ -21,44 +21,45 @@ INSTA_PASS = "praveer123"
 THREAD_ID = os.environ.get("TARGET_THREAD_ID")
 MESSAGES = os.environ.get("MESSAGES", "Hello!|Auto-Reply by Praveer|Active ⚡").split("|")
 
-# --- SOCKS5 PROXY DATA ---
-# Replace with the specific IP and Port provided by vmoscloud
-PX_HOST = "api.vmoscloud.com" 
-PX_PORT = "1080" # Example SOCKS5 port
-PX_USER = "7RkSZhW0WwvH4aYbCFJvMklNdwIuk2HI"
-PX_PASS = "ZjJyPu1MLCbf5v7xKA1wfeiP"
+# --- DYNAMIC PROXY DATA (Host:Port:User:Pass) ---
+# NOTE: For VMOS dynamic IPs, use the 'Gateway' host provided in your panel.
+# If 'change4.owlproxy.com' was the host given for dynamic, keep it.
+PX_HOST = "change4.owlproxy.com" 
+PX_PORT = "7778" 
+PX_USER = "EibxO4p1dJ50_custom_zone_US_st__city_sid_82468756_time_90"
+PX_PASS = "2281862"
 
-# SOCKS5 Format for Instagrapi
+# SOCKS5 is best for dynamic residential credits
 PROXY_URL = f"socks5://{PX_USER}:{PX_PASS}@{PX_HOST}:{PX_PORT}"
 
 def log(msg):
     print(f"[🤖 BOT]: {msg}", flush=True)
 
-def check_socks5_connection():
-    """Verify SOCKS5 tunnel is working before login"""
+def check_dynamic_ip():
+    """Checks the current IP assigned to your dynamic credit"""
     try:
-        # We use a standard request to check the IP via the proxy
         proxies = {'http': PROXY_URL, 'https': PROXY_URL}
-        response = requests.get('https://api.ipify.org?format=json', proxies=proxies, timeout=20)
+        # Dynamic IPs can take a few seconds to 'handshake'
+        response = requests.get('https://api.ipify.org?format=json', proxies=proxies, timeout=30)
         ip = response.json()['ip']
-        log(f"✅ SOCKS5 Connected! Proxy IP: {ip}")
+        log(f"✅ Dynamic IP Active: {ip}")
         return True
     except Exception as e:
-        log(f"❌ SOCKS5 Connection Failed: {e}")
+        log(f"❌ Dynamic IP Failed: {e}")
+        log("💡 TIP: Check your VMOS dashboard to see if your 200MB credit is still active.")
         return False
 
 def main():
     print("=========================================")
-    print("   🚀 INSTAGRAPI SOCKS5 BOT BY PRAVEER   ")
+    print("   🚀 INSTAGRAPI DYNAMIC BOT BY PRAVEER  ")
     print("=========================================")
 
     if not THREAD_ID:
-        log("❌ Error: Missing TARGET_THREAD_ID in Secrets!")
+        log("❌ Error: Missing TARGET_THREAD_ID!")
         sys.exit(1)
 
-    # 1. Connection Check
-    if not check_socks5_connection():
-        log("🛑 STOPPING: SOCKS5 Proxy is not responding. Check Host/Port/Keys.")
+    # 1. Check if dynamic credit is working
+    if not check_dynamic_ip():
         sys.exit(1)
 
     cl = Client()
@@ -83,7 +84,7 @@ def main():
         log(f"🔑 Logging into @{INSTA_USER}...")
         cl.login(INSTA_USER, INSTA_PASS)
         me = cl.account_info()
-        log(f"✅ SUCCESS! Logged in as: {me.username}")
+        log(f"✅ SUCCESS! Connected as: {me.username}")
     except Exception as e:
         log(f"❌ Login Failed: {e}")
         sys.exit(1)
@@ -91,7 +92,6 @@ def main():
     log(f"🎯 Monitoring Thread: {THREAD_ID}")
     last_msg_id = None
 
-    # --- MAIN LOOP ---
     while True:
         try:
             thread = cl.direct_thread(THREAD_ID)
@@ -107,18 +107,15 @@ def main():
                     last_msg_id = last_msg.id
                     
                     reply_text = random.choice(MESSAGES)
-                    # Quoted/Swipe Reply
                     cl.direct_answer(THREAD_ID, reply_text, replied_to_message_id=last_msg.id)
-                    
-                    log(f"🚀 Sent Quoted Reply: {reply_text}")
-                    log("🔥 Credit: Auto reply by Praveer")
+                    log(f"🚀 Sent: {reply_text} | Credit: Praveer")
                 else:
                     last_msg_id = last_msg.id
 
             time.sleep(2)
         except Exception as e:
-            log(f"⚠️ Loop Error: {e}")
-            time.sleep(10)
+            log(f"⚠️ API Glitch (Likely IP Rotating): {e}")
+            time.sleep(10) # Wait for a fresh IP if rotation causes a glitch
 
 if __name__ == "__main__":
     main()
