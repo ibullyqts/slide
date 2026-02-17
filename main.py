@@ -1,6 +1,6 @@
 """
 =====================================================
-   🚀 INSTAGRAPI SLIDER (ID & Password Login)
+   🚀 INSTAGRAPI SLIDER (SOCKS5 Edition)
    --------------------------------------------------
    🔥 CREDITS: Auto reply by Praveer
 =====================================================
@@ -17,52 +17,54 @@ from instagrapi import Client
 INSTA_USER = "bhangilode"
 INSTA_PASS = "praveer123"
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION (GitHub Secrets) ---
 THREAD_ID = os.environ.get("TARGET_THREAD_ID")
 MESSAGES = os.environ.get("MESSAGES", "Hello!|Auto-Reply by Praveer|Active ⚡").split("|")
 
-# --- PROXY DATA (Host:Port:User:Pass) ---
-PX_HOST = "change4.owlproxy.com"
-PX_PORT = "7778"
-PX_USER = "EibxO4p1dJ50_custom_zone_US_st__city_sid_82468756_time_90"
-PX_PASS = "2281862"
+# --- SOCKS5 PROXY DATA ---
+# Replace with the specific IP and Port provided by vmoscloud
+PX_HOST = "api.vmoscloud.com" 
+PX_PORT = "1080" # Example SOCKS5 port
+PX_USER = "7RkSZhW0WwvH4aYbCFJvMklNdwIuk2HI"
+PX_PASS = "ZjJyPu1MLCbf5v7xKA1wfeiP"
 
-# Instagrapi format
-PROXY_URL = f"http://{PX_USER}:{PX_PASS}@{PX_HOST}:{PX_PORT}"
+# SOCKS5 Format for Instagrapi
+PROXY_URL = f"socks5://{PX_USER}:{PX_PASS}@{PX_HOST}:{PX_PORT}"
 
 def log(msg):
     print(f"[🤖 BOT]: {msg}", flush=True)
 
-def check_ip():
-    """Verify proxy tunnel is open before sending credentials"""
+def check_socks5_connection():
+    """Verify SOCKS5 tunnel is working before login"""
     try:
+        # We use a standard request to check the IP via the proxy
         proxies = {'http': PROXY_URL, 'https': PROXY_URL}
-        response = requests.get('https://api.ipify.org?format=json', proxies=proxies, timeout=15)
-        new_ip = response.json()['ip']
-        log(f"🌐 Proxy Tunnel Established. IP: {new_ip}")
+        response = requests.get('https://api.ipify.org?format=json', proxies=proxies, timeout=20)
+        ip = response.json()['ip']
+        log(f"✅ SOCKS5 Connected! Proxy IP: {ip}")
         return True
     except Exception as e:
-        log(f"❌ Proxy Authentication Failed: {e}")
+        log(f"❌ SOCKS5 Connection Failed: {e}")
         return False
 
 def main():
     print("=========================================")
-    print("   🚀 INSTAGRAPI BOT BY PRAVEER          ")
+    print("   🚀 INSTAGRAPI SOCKS5 BOT BY PRAVEER   ")
     print("=========================================")
 
     if not THREAD_ID:
-        log("❌ Error: Missing TARGET_THREAD_ID in GitHub Secrets!")
+        log("❌ Error: Missing TARGET_THREAD_ID in Secrets!")
         sys.exit(1)
 
-    # 1. Verify Proxy first (Safety check)
-    if not check_ip():
-        log("🛑 STOPPING: Connection is not secure. Check your Proxy details.")
+    # 1. Connection Check
+    if not check_socks5_connection():
+        log("🛑 STOPPING: SOCKS5 Proxy is not responding. Check Host/Port/Keys.")
         sys.exit(1)
 
     cl = Client()
     cl.set_proxy(PROXY_URL)
 
-    # 2. Randomize Device Fingerprint
+    # 2. Randomize Device
     cl.set_device({
         "app_version": "269.0.0.18.75",
         "android_version": 33,
@@ -76,15 +78,14 @@ def main():
         "version_code": "314578889"
     })
 
-    # 3. Login via Username/Password
+    # 3. Login
     try:
-        log(f"🔑 Attempting Login for @{INSTA_USER}...")
+        log(f"🔑 Logging into @{INSTA_USER}...")
         cl.login(INSTA_USER, INSTA_PASS)
         me = cl.account_info()
         log(f"✅ SUCCESS! Logged in as: {me.username}")
     except Exception as e:
         log(f"❌ Login Failed: {e}")
-        log("💡 Check: Is Two-Factor Authentication (2FA) off? Is the password correct?")
         sys.exit(1)
 
     log(f"🎯 Monitoring Thread: {THREAD_ID}")
@@ -100,14 +101,13 @@ def main():
             
             last_msg = thread.messages[0]
 
-            # If NEW message and NOT from me
             if last_msg.id != last_msg_id:
                 if str(last_msg.user_id) != str(me.pk):
                     log(f"📩 New Message: {last_msg.text}")
                     last_msg_id = last_msg.id
                     
                     reply_text = random.choice(MESSAGES)
-                    # Quoted Reply (Like a Swipe)
+                    # Quoted/Swipe Reply
                     cl.direct_answer(THREAD_ID, reply_text, replied_to_message_id=last_msg.id)
                     
                     log(f"🚀 Sent Quoted Reply: {reply_text}")
