@@ -1,6 +1,6 @@
 """
 =====================================================
-   🚀 INSTAGRAPI SLIDER (Safe Proxy & IP Check)
+   🚀 INSTAGRAPI SLIDER (ID & Password Login)
    --------------------------------------------------
    🔥 CREDITS: Auto reply by Praveer
 =====================================================
@@ -13,33 +13,36 @@ import sys
 import requests
 from instagrapi import Client
 
+# --- INSTAGRAM CREDITS ---
+INSTA_USER = "bhangilode"
+INSTA_PASS = "praveer123"
+
 # --- CONFIGURATION ---
-SESSION_ID = os.environ.get("INSTA_COOKIE")
 THREAD_ID = os.environ.get("TARGET_THREAD_ID")
 MESSAGES = os.environ.get("MESSAGES", "Hello!|Auto-Reply by Praveer|Active ⚡").split("|")
 
-# --- PROXY RAW DATA (Host:Port:User:Pass) ---
+# --- PROXY DATA (Host:Port:User:Pass) ---
 PX_HOST = "change4.owlproxy.com"
 PX_PORT = "7778"
 PX_USER = "EibxO4p1dJ50_custom_zone_US_st__city_sid_82468756_time_90"
 PX_PASS = "2281862"
 
-# Format for Instagrapi
+# Instagrapi format
 PROXY_URL = f"http://{PX_USER}:{PX_PASS}@{PX_HOST}:{PX_PORT}"
 
 def log(msg):
     print(f"[🤖 BOT]: {msg}", flush=True)
 
 def check_ip():
-    """Verify if the proxy is actually working"""
+    """Verify proxy tunnel is open before sending credentials"""
     try:
         proxies = {'http': PROXY_URL, 'https': PROXY_URL}
-        response = requests.get('https://api.ipify.org?format=json', proxies=proxies, timeout=10)
+        response = requests.get('https://api.ipify.org?format=json', proxies=proxies, timeout=15)
         new_ip = response.json()['ip']
-        log(f"🌐 Proxy Active! Current IP: {new_ip}")
+        log(f"🌐 Proxy Tunnel Established. IP: {new_ip}")
         return True
     except Exception as e:
-        log(f"❌ Proxy IP Check Failed: {e}")
+        log(f"❌ Proxy Authentication Failed: {e}")
         return False
 
 def main():
@@ -47,20 +50,19 @@ def main():
     print("   🚀 INSTAGRAPI BOT BY PRAVEER          ")
     print("=========================================")
 
-    if not SESSION_ID or not THREAD_ID:
-        log("❌ Error: Missing Secrets (INSTA_COOKIE or TARGET_THREAD_ID)!")
+    if not THREAD_ID:
+        log("❌ Error: Missing TARGET_THREAD_ID in GitHub Secrets!")
         sys.exit(1)
 
-    # 1. Verify Proxy Connection first
+    # 1. Verify Proxy first (Safety check)
     if not check_ip():
-        log("⚠️ Proceeding without confirmed proxy (might fail)...")
+        log("🛑 STOPPING: Connection is not secure. Check your Proxy details.")
+        sys.exit(1)
 
     cl = Client()
-    
-    # 2. Set Proxy
     cl.set_proxy(PROXY_URL)
 
-    # 3. Randomize Device
+    # 2. Randomize Device Fingerprint
     cl.set_device({
         "app_version": "269.0.0.18.75",
         "android_version": 33,
@@ -74,15 +76,15 @@ def main():
         "version_code": "314578889"
     })
 
-    # 4. Login via Session ID
+    # 3. Login via Username/Password
     try:
-        log("🔑 Attempting Login via Session ID...")
-        cl.login_by_sessionid(SESSION_ID)
+        log(f"🔑 Attempting Login for @{INSTA_USER}...")
+        cl.login(INSTA_USER, INSTA_PASS)
         me = cl.account_info()
         log(f"✅ SUCCESS! Logged in as: {me.username}")
     except Exception as e:
         log(f"❌ Login Failed: {e}")
-        log("💡 Check: 1. Is the Proxy port 7778 open? 2. Is your Session ID fresh?")
+        log("💡 Check: Is Two-Factor Authentication (2FA) off? Is the password correct?")
         sys.exit(1)
 
     log(f"🎯 Monitoring Thread: {THREAD_ID}")
@@ -93,18 +95,19 @@ def main():
         try:
             thread = cl.direct_thread(THREAD_ID)
             if not thread.messages:
-                time.sleep(2)
+                time.sleep(3)
                 continue
             
             last_msg = thread.messages[0]
 
+            # If NEW message and NOT from me
             if last_msg.id != last_msg_id:
                 if str(last_msg.user_id) != str(me.pk):
                     log(f"📩 New Message: {last_msg.text}")
                     last_msg_id = last_msg.id
                     
                     reply_text = random.choice(MESSAGES)
-                    # Quoted/Swipe Reply
+                    # Quoted Reply (Like a Swipe)
                     cl.direct_answer(THREAD_ID, reply_text, replied_to_message_id=last_msg.id)
                     
                     log(f"🚀 Sent Quoted Reply: {reply_text}")
@@ -114,7 +117,7 @@ def main():
 
             time.sleep(2)
         except Exception as e:
-            log(f"⚠️ Error during loop: {e}")
+            log(f"⚠️ Loop Error: {e}")
             time.sleep(10)
 
 if __name__ == "__main__":
